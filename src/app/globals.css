@@ -1,0 +1,240 @@
+@import "tailwindcss";
+
+/* ───────────────────────────────────────────────────────────────────────────
+   REALITY.EXE design tokens
+
+   Two materials:
+   - The city (night, asphalt, neon): dark, wet, lit by signage.
+   - The menus (paper, ink, crimson): opaque ecru sheets with printed ink,
+     like a field manual pulled out in the rain. No glass, no blur.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-night: #070814;
+  --color-asphalt: #10121e;
+  --color-haze: #1b1d33;
+  --color-hud: #e9e4d6;
+  --color-hud-dim: #a39e90;
+  --color-paper: #dcd5c3;
+  --color-paper-2: #cec6b1;
+  --color-paper-3: #bdb49c;
+  --color-ink: #1a1915;
+  --color-ink-2: #45413a;
+  --color-ink-3: #6e685b;
+  --color-cyan: #3ee8e0;
+  --color-violet: #8b6cff;
+  --color-crimson: #ff3b4f;
+  --color-amber: #ffb547;
+  /* Accent variants dark enough to read on paper (WCAG AA on #dcd5c3). */
+  --color-crimson-ink: #a3101f;
+  --color-cyan-ink: #0b5f5b;
+  --color-violet-ink: #4a2fb8;
+  --color-amber-ink: #7a4a00;
+
+  --font-display: var(--font-saira), "Arial Narrow", sans-serif;
+  --font-body: var(--font-zen), "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: var(--font-jet), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --ease-snap: cubic-bezier(0.2, 0.9, 0.1, 1);
+}
+
+:root {
+  color-scheme: dark;
+  /* Type scale: 1.25 ratio from 16px. */
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.5625rem;
+  --step-3: 1.953rem;
+  --step-4: 2.441rem;
+  --step-5: 3.815rem;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--color-night);
+  color: var(--color-hud);
+  font-family: var(--font-body);
+  overscroll-behavior: none;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-crimson);
+  color: var(--color-night);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 3px;
+}
+
+.on-paper :focus-visible {
+  outline-color: var(--color-crimson-ink);
+}
+
+/* ── Screen texture: scanlines + grain, one fixed layer, no animation cost ── */
+.screen-fx {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgb(0 0 0 / 0) 0,
+      rgb(0 0 0 / 0) 2px,
+      rgb(0 0 0 / 0.11) 3px
+    ),
+    radial-gradient(ellipse at center, transparent 55%, rgb(3 3 10 / 0.55) 100%);
+  mix-blend-mode: multiply;
+}
+.screen-fx::after {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  opacity: 0.07;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain 0.9s steps(4) infinite;
+  mix-blend-mode: screen;
+}
+@keyframes grain {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-3%, 2%); }
+  50% { transform: translate(2%, -3%); }
+  75% { transform: translate(-1%, 3%); }
+}
+
+/* ── Paper sheet: the menu material ── */
+.paper {
+  --cut: 22px;
+  background-color: var(--color-paper);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .28 0 0 0 0 .22 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #e2dccb 0%, var(--color-paper) 40%, #d3cbb7 100%);
+  color: var(--color-ink);
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+}
+
+/* Ruled rows inside a sheet. */
+.rule {
+  border-top: 1px solid rgb(26 25 21 / 0.22);
+}
+.rule-strong {
+  border-top: 2px solid var(--color-ink);
+}
+
+/* The crimson slash that marks the active thing. One motif, used sparingly. */
+.slash {
+  position: relative;
+  isolation: isolate;
+}
+.slash::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 8% -6px 8% -10px;
+  background: var(--color-crimson);
+  transform: skewX(-14deg);
+}
+
+/* Display type: condensed, tight, set large. */
+.display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.01em;
+}
+
+.kanji {
+  font-family: var(--font-body);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* HUD hairline frame with corner ticks, for in-world plates. */
+.hud-frame {
+  position: relative;
+  border: 1px solid rgb(233 228 214 / 0.18);
+  background: rgb(7 8 20 / 0.72);
+}
+.hud-frame::before,
+.hud-frame::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-color: var(--color-cyan);
+  border-style: solid;
+}
+.hud-frame::before {
+  top: -1px;
+  left: -1px;
+  border-width: 1px 0 0 1px;
+}
+.hud-frame::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 1px 1px 0;
+}
+
+.scroll-ink {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-3) transparent;
+}
+
+/* Custom cursor: a small reticle on fine pointers only. */
+@media (pointer: fine) {
+  .cursor-reticle,
+  .cursor-reticle * {
+    cursor: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .screen-fx::after {
+    animation: none;
+  }
+}
+
+/* ── Quest preview motion: slow, looped, off for reduced motion ── */
+.qv-pulse {
+  animation: qv-pulse 2.4s ease-in-out infinite;
+}
+.qv-dash {
+  animation: qv-dash 3s linear infinite;
+}
+.qv-scan {
+  animation: qv-scan 4s ease-in-out infinite alternate;
+}
+@keyframes qv-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+@keyframes qv-dash {
+  to { stroke-dashoffset: -36; }
+}
+@keyframes qv-scan {
+  from { transform: translateX(0); }
+  to { transform: translateX(276px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qv-pulse, .qv-dash, .qv-scan { animation: none; }
+}
+
+/* Sheet headings take focus for screen readers; no ring needed there. */
+[role="dialog"] h2[tabindex="-1"]:focus-visible {
+  outline: none;
+}
