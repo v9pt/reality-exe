@@ -69,14 +69,17 @@ only plays after the server confirms a send.
 | E | Open what you're next to (landmark, cabinet, jukebox, alley) |
 | M | Play or pause music |
 | 1 to 6 | Open a section |
-| 7, 8, 9 | Travel to the Arcade, Garden, Overlook |
+| 7, 8, 9, 0 | Travel to the Arcade, Garden, Overlook, Circuit |
+| N | Hide or show the quick menu |
+| Q / Shift+Q, F | Switch power, use power |
+| K | Get in or out of the kart |
 | `` ` `` | Terminal |
 | Esc | Close a sheet |
 
 **Touch:** joystick (push to the edge to run), a look pad that works at the same
 time as the joystick, pinch to zoom, two-finger pan in Free camera, and buttons
 for camera mode, run lock and jump. The bottom bar holds every section, the
-game list and fast travel. Phones on their side use the same compact layout.
+game list and fast travel; its Menu tab folds it away. Phones on their side use the same compact layout.
 
 **Camera modes:** *Follow* is a third-person chase camera over the right
 shoulder: it swings back behind the character while you run (unless you're
@@ -115,10 +118,51 @@ add a renderer to `components/arcade/render.ts`, register it in
 Logic runs at a fixed 60 Hz, so tests can drive it step by step with
 `scripted()` controls.
 
+## Powers, the kart and the circuit
+
+Six original abilities share one energy meter that refills on its own.
+Q (Shift+Q back) switches, F uses; on touch, Power and Switch buttons.
+Every power works anywhere in the city: on foot, in mid-air, mid-swing and
+in the kart. Targets are kept inside the city's edge.
+
+| Power | What it does |
+| --- | --- |
+| Grapple line | Hold F: a line to the nearest rooftop ahead (a courier drone catches it in open sky); swing, let go to fly, fire again mid-swing to chain. In the kart: hops you out and swings |
+| Elastic reach | Your arm stretches to a rooftop or landmark and slings you there. In the kart: hops you out and slings |
+| Overdrive | Toggle super speed with afterimages; drains energy while on. In the kart: a boost |
+| Sky leap | A huge jump, plus one more lift in mid-air; hold F on the way down to glide. In the kart: a kart jump |
+| Ground slam | Dive and land with a shockwave; from the ground you spring up first. Works in the kart too |
+| Blink | Flash up to twelve metres forward. In the kart: a dash |
+
+The city is free roam: rooftops, the overlook and the elevated highway are all
+surfaces you can land on. Physics lives in `src/lib/motion.ts` (pure, tested).
+
+**Kart:** K (or the Kart button) brings a go-kart to you. W/S drive, A steers
+left and D right, Space drifts, Overdrive boosts. **Circuit:** press 0. Cross the start line to
+time a lap; every checkpoint must be passed without leaving the track. Low
+red-and-white barriers line both edges (karts bounce off them; on foot you can
+jump them), with an opening where the south avenue comes in. Track
+data and the lap timer are in `src/lib/circuit.ts`.
+
+## Global leaderboard
+
+Every finished arcade game and every clean lap is posted to `/api/scores`
+under the visitor's callsign (changeable in the arcade or with `callsign` in
+the terminal). The server validates game and score ranges, rate-limits per
+address in memory, keeps the best 500 entries per game and counts every run.
+It stores only callsign, score and time.
+
+Storage: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (or
+Vercel's `KV_REST_API_URL` / `KV_REST_API_TOKEN`) for serverless hosting.
+Without them scores go to `.data/scores.json` (`SCORES_FILE` to move it), which
+suits development and an always-on Node server. If the store can't be written,
+the board reports itself offline and scores stay on the visitor's device.
+
 ## Vex, the guide
 
 On a first visit (after the boot screen, unless a deep link opened a sheet),
-Vex, a small holo-drone, gives a ten-step tour: moving, the camera, the six
+Vex asks whether you'd like a tour; Yes starts it, No thanks never asks again.
+Vex, a small holo-drone, gives a twelve-step tour: moving, the camera, the six
 sections, travel, the minimap, the arcade, the jukebox and secrets. Each step
 spotlights the real control it describes, and the Overview camera shows the
 districts. Back, Next, Enter, arrow keys and Esc all work; reduced motion

@@ -4,6 +4,7 @@ import { create } from "zustand";
 import type { GameId } from "@/lib/arcade";
 import { districtById, type DistrictId, type PanelId, type SectionId } from "@/lib/sections";
 import { music } from "@/lib/music/engine";
+import { ENERGY_MAX, POWERS, type PowerId } from "@/lib/powers";
 import { groundHeight } from "@/lib/world-map";
 
 export type Phase = "boot" | "world";
@@ -23,7 +24,10 @@ export type SecretId =
   | "devmode"
   | "arcade"
   | "overlook"
-  | "jukebox";
+  | "jukebox"
+  | "kart"
+  | "lap"
+  | "hero";
 
 export const SECRET_LABELS: Record<SecretId, string> = {
   konami: "Entered the old code",
@@ -36,6 +40,9 @@ export const SECRET_LABELS: Record<SecretId, string> = {
   arcade: "Played every cabinet",
   overlook: "Saw the whole district",
   jukebox: "Put a song on",
+  kart: "Took the kart out",
+  lap: "Set a clean lap",
+  hero: "Used every power",
 };
 
 export type Toast = { id: number; title: string; body?: string; tone: "secret" | "info" };
@@ -69,6 +76,15 @@ type State = {
 
   /** Vex's guided tour is on screen. */
   tour: boolean;
+  /** The selected superpower. */
+  power: PowerId;
+  setPower: (p: PowerId) => void;
+  cyclePower: (dir: 1 | -1) => void;
+  /** Mirrors whether the visitor is driving, for the HUD. */
+  driving: boolean;
+  /** The quick menu (sections, travel, games) is expanded. */
+  navOpen: boolean;
+  toggleNav: (open?: boolean) => void;
   startTour: () => void;
   endTour: () => void;
   setCamMode: (m: CameraMode) => void;
@@ -98,6 +114,7 @@ type State = {
 
 const STORAGE_KEY = "reality.exe/v1";
 export const TOUR_KEY = "reality.exe/tour-seen";
+export const NAV_KEY = "reality.exe/nav";
 
 type Saved = Pick<State, "secrets" | "visited" | "backroomOpen" | "catPets">;
 
@@ -129,6 +146,9 @@ export const useGame = create<State>()((set, get) => ({
   camMode: "follow",
   arcadeGame: null,
   tour: false,
+  power: "grapple",
+  driving: false,
+  navOpen: true,
   quality: "medium",
   dpr: null,
   reducedMotion: false,
@@ -221,6 +241,23 @@ export const useGame = create<State>()((set, get) => ({
   },
   setQuest: (questSlug) => set({ questSlug }),
 
+  setPower: (power) => {
+    set({ power });
+    hero.overdrive = false;
+  },
+  cyclePower: (dir) => {
+    const i = POWERS.findIndex((p) => p.id === get().power);
+    get().setPower(POWERS[(i + dir + POWERS.length) % POWERS.length].id);
+  },
+  toggleNav: (open) => {
+    const navOpen = open ?? !get().navOpen;
+    set({ navOpen });
+    try {
+      localStorage.setItem(NAV_KEY, navOpen ? "open" : "closed");
+    } catch {
+      /* private mode: the menu just opens again next visit */
+    }
+  },
   startTour: () => {
     if (get().panel) get().close();
     set({ tour: true });
@@ -253,7 +290,7 @@ export const useGame = create<State>()((set, get) => ({
     }
     if (n.startsWith("cab:")) get().openGame(n.slice(4) as GameId);
     else if (n === "arcade") get().openGame(null);
-    else if (n === "garden" || n === "overlook") return;
+    else if (n === "garden" || n === "overlook" || n === "circuit") return;
     else get().open(n as PanelId);
   },
   travel: (id) => {
@@ -284,8 +321,39 @@ function persist() {
 /**
  * `jump` is a one-shot request: set by Space or the touch button, consumed by the avatar.
  * `runLock` is the touch run toggle. `rot` and `zoom` are held camera keys (-1, 0, 1).
+ * `jumpHeld` is Space held (drift in the kart). `powerHeld` / `powerTaps` are the
+ * power key (F or the touch button); `kartToggle` asks to get in or out of the kart.
  */
-export const input = { x: 0, z: 0, run: false, runLock: false, jump: false, rot: 0, zoom: 0 };
+export const input = {
+  x: 0,
+  z: 0,
+  run: false,
+  runLock: false,
+  jump: false,
+  jumpHeld: false,
+  rot: 0,
+  zoom: 0,
+  powerHeld: false,
+  powerTaps: 0,
+  kartToggle: false,
+};
+
+export type HeroMode = "walk" | "air" | "swing" | "kart";
+
+/**
+ * Live state of the visitor's character, written by the frame loop and read
+ * by the HUD on its own timer (never React state per frame).
+ */
+export const hero = {
+  mode: "walk" as HeroMode,
+  energy: ENERGY_MAX,
+  overdrive: false,
+  /** Ground speed in m/s. */
+  speed: 0,
+  /** Flash on the energy bar when a power was refused. */
+  deniedAt: 0,
+  lap: { running: false, startedAt: 0, valid: true, passed: 0, lastMs: null as number | null, bestMs: null as number | null, lastEventAt: 0, lastEvent: "" },
+};
 /**
  * Avatar position, written by the render loop, read by the map.
  * `ground` is the surface height under the avatar; `y` is the jump height above it.
@@ -310,6 +378,8 @@ export const view = {
   intro: 1,
   /** Skip the smoothing for one frame (after fast travel). */
   snap: false,
+  /** Camera shake strength (decays each frame). */
+  shake: 0,
 };
 
 export const CAMERA_LIMITS: Record<CameraMode, { pitch: [number, number]; dist: [number, number] }> = {
@@ -320,5 +390,5 @@ export const CAMERA_LIMITS: Record<CameraMode, { pitch: [number, number]; dist: 
 
 if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
   // Handy in dev tools: __reality.game.getState(), __reality.avatar
-  (window as unknown as Record<string, unknown>).__reality = { game: useGame, avatar, input, view, music };
+  (window as unknown as Record<string, unknown>).__reality = { game: useGame, avatar, input, view, music, hero };
 }

@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { achievements, profile, quests, roles, skillTree } from "@/config/portfolio";
 import { JOKES } from "@/lib/jokes";
 import { GAMES, gameById } from "@/lib/arcade";
+import { formatLap } from "@/lib/circuit";
+import { BOARD_GAMES, LOWER_IS_BETTER, callsign, fetchBoard, setCallsign, type BoardGame } from "@/lib/leaderboard";
+import { POWERS } from "@/lib/powers";
 import { TRACKS, music } from "@/lib/music/engine";
 import { DISTRICTS, SECTIONS, districtById, sectionById, type PanelId } from "@/lib/sections";
 import { SECRET_LABELS, useGame } from "@/store/game";
@@ -207,6 +210,50 @@ const COMMANDS: Record<string, Command> = {
   history: { help: "Commands you've run", run: ({ print, history }) => print(history.length ? history.map((h, i) => `${i + 1}  ${h}`).join("\n") : "Nothing yet.") },
   clear: { help: "Clear the screen", run: ({ clear }) => clear() },
   exit: { help: "Back to the city", run: () => useGame.getState().close() },
+  powers: {
+    help: "List your superpowers",
+    run: ({ print }) =>
+      print(
+        <div className="grid grid-cols-[10rem_1fr] gap-x-4">
+          {POWERS.map((p) => (
+            <div key={p.id} className="contents">
+              <span className="text-cyan">
+                {p.glyph} {p.name}
+              </span>
+              <span className="text-hud-dim">
+                {p.how} In the kart: {p.kart}.
+              </span>
+            </div>
+          ))}
+        </div>,
+      ),
+  },
+  kart: {
+    help: "How to drive, and the circuit",
+    run: ({ print }) => print("Press K for the go-kart (it comes to you). W/S drive, A steers left, D steers right, Space drifts, K gets out. Every power works in the kart too. Press 0 for the circuit south of the plaza: every clean lap is timed and posted. Try `leaderboard kart`."),
+  },
+  leaderboard: {
+    help: "Global top 10: leaderboard <game>",
+    args: () => BOARD_GAMES,
+    run: ({ print, args }) => {
+      const game = (args[0] ?? "kart") as BoardGame;
+      if (!BOARD_GAMES.includes(game)) return print(`Boards: ${BOARD_GAMES.join(", ")}`, "err");
+      print(`Fetching the ${game} board…`, "sys");
+      void fetchBoard(game).then((r) => {
+        if (!r.ok) return print(r.message, "err");
+        if (!r.board.length) return print("Nobody has posted yet. Be the first.");
+        print(r.board.map((e, i) => `${String(i + 1).padStart(2)}. ${e.name.padEnd(16)} ${LOWER_IS_BETTER[game] ? formatLap(e.score) : e.score}`).join("\n") + `\n${r.runs} runs logged.`);
+      });
+    },
+  },
+  callsign: {
+    help: "Set the name your scores go under",
+    run: ({ print, args }) => {
+      if (!args.length) return print(`Your callsign is ${callsign()}. Change it with \`callsign <name>\`.`);
+      const n = setCallsign(args.join(" "));
+      print(n ? `Callsign set to ${n}.` : "Callsigns are 2 to 16 letters, digits, spaces, dots or dashes.", n ? "sys" : "err");
+    },
+  },
   vex: {
     help: "Replay the guided tour",
     run: ({ print }) => {

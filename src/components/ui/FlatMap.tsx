@@ -11,7 +11,7 @@ const at = (v: number) => `calc(50% + ${v} * max(${100 / 96}vw, ${100 / 72}vh))`
 const squeeze = ([x, z]: [number, number]): [number, number] => {
   const r = Math.hypot(x, z);
   if (r <= 17) return [x, z];
-  const k = (17 + (r - 17) * 0.3) / r;
+  const k = (17 + (r - 17) * 0.24) / r;
   return [x * k, z * k];
 };
 

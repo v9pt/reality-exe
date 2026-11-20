@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STEP, type Btn, type Evented, type GameLogic } from "@/arcade/core";
 import { submit } from "@/arcade/highscores";
+import { LIMITS, postScore } from "@/lib/leaderboard";
 import { CABINETS, type GameMeta } from "@/lib/arcade";
 import { HUE_HEX } from "@/lib/sections";
 import { useGame } from "@/store/game";
@@ -41,7 +42,7 @@ export function GameScreen<S extends Evented>({
   const [snap, setSnap] = useState<S>(first);
   const [status, setStatus] = useState<Status>("play");
   const statusRef = useRef<Status>("play");
-  const [result, setResult] = useState<{ score: number; rank: number | null } | null>(null);
+  const [result, setResult] = useState<{ score: number; rank: number | null; global: string | null } | null>(null);
   const sound = useRef(false);
   useEffect(() => {
     sound.current = soundOn();
@@ -126,7 +127,14 @@ export function GameScreen<S extends Evented>({
         if (logic.over(s)) {
           const score = logic.score(s);
           const { rank, played } = submit(meta.id, score);
-          setResult({ score, rank });
+          setResult({ score, rank, global: score >= LIMITS[meta.id].min ? "posting" : null });
+          // Every finished run goes to the global board under the visitor's callsign.
+          if (score >= LIMITS[meta.id].min) {
+            void postScore(meta.id, score).then((r) => {
+              setResult((cur) => (cur && cur.score === score ? { ...cur, global: r.ok ? (r.rank ? `#${r.rank} worldwide` : "logged") : "offline" } : cur));
+              onScores();
+            });
+          }
           setS("over");
           onScores();
           const g2 = useGame.getState();
@@ -189,6 +197,15 @@ export function GameScreen<S extends Evented>({
                   <p className="text-[15px] text-hud">
                     {result.score} points
                     {result.rank ? <span className="text-amber"> · #{result.rank} on this device</span> : null}
+                  </p>
+                  <p className="text-[13px] text-hud-dim">
+                    {result.global === "posting"
+                      ? "Posting to the global board…"
+                      : result.global === "offline"
+                        ? "Global board offline; kept on this device."
+                        : result.global
+                          ? `Global board: ${result.global}`
+                          : null}
                   </p>
                   <button data-autofocus onClick={restart} className="mt-3 px-4 py-1.5 text-[14px] font-bold text-night" style={{ background: color }}>
                     Play again

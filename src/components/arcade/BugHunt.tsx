@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { submit } from "@/arcade/highscores";
+import { postScore } from "@/lib/leaderboard";
 import { useGame } from "@/store/game";
 
 const ROUND = 15;
@@ -30,6 +31,7 @@ export function BugHunt({ onScores }: { onScores?: () => void }) {
     const final = scoreRef.current;
     const r = submit("bughunt", final);
     setRank(r.rank);
+    if (final > 0) void postScore("bughunt", final).then(() => onScores?.());
     if (r.rank === 1) useGame.getState().toast({ tone: "info", title: "New best on Bug Hunt", body: `${final} bugs` });
     onScores?.();
   }, [onScores]);

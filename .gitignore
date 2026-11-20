@@ -8,3 +8,5 @@ next-env.d.ts
 coverage
 .env
 .claude/
+.data
+.playwright-mcp

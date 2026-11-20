@@ -11,6 +11,7 @@ import {
   CABINET_X,
   CABINET_Z,
   HIGHWAY_HALF,
+  HIGHWAY_PILLARS,
   HIGHWAY_R,
   HIGHWAY_Y,
   OVERLOOK_RECT,
@@ -356,17 +357,7 @@ function Highway() {
   const quality = useGame((s) => s.quality);
   const reducedMotion = useGame((s) => s.reducedMotion);
   const pillars = useRef<THREE.InstancedMesh>(null);
-  const pillarM = useMemo(() => {
-    const out: THREE.Matrix4[] = [];
-    for (let i = 0; i < 36; i++) {
-      const a = (i / 36) * Math.PI * 2;
-      // Leave the four avenues clear.
-      const toAxis = Math.min(...[0, Math.PI / 2, Math.PI, -Math.PI / 2, -Math.PI].map((ax) => Math.abs(Math.atan2(Math.sin(a - ax), Math.cos(a - ax)))));
-      if (toAxis < 0.2) continue;
-      out.push(compose(Math.cos(a) * HIGHWAY_R, (HIGHWAY_Y - 0.3) / 2, Math.sin(a) * HIGHWAY_R, 1, 1, 1));
-    }
-    return out;
-  }, []);
+  const pillarM = useMemo(() => HIGHWAY_PILLARS.map(([x, z]) => compose(x, (HIGHWAY_Y - 0.3) / 2, z, 1, 1, 1)), []);
   useInstances(pillars, pillarM);
 
   const count = CARS[quality];

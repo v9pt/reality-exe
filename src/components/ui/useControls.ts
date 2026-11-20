@@ -30,6 +30,7 @@ export function useControls(enabled: boolean) {
         input.x = input.z = 0;
         input.run = false;
         input.rot = input.zoom = 0;
+        input.jumpHeld = input.powerHeld = false;
         return;
       }
       const has = (...k: string[]) => k.some((x) => held.has(x));
@@ -38,6 +39,8 @@ export function useControls(enabled: boolean) {
       input.run = has("shift");
       input.rot = (has("]") ? 1 : 0) - (has("[") ? 1 : 0);
       input.zoom = (has("-") ? 1 : 0) - (has("=", "+") ? 1 : 0);
+      input.jumpHeld = has(" ");
+      input.powerHeld = has("f");
     };
 
     const down = (e: KeyboardEvent) => {
@@ -101,6 +104,31 @@ export function useControls(enabled: boolean) {
         if ((e.target as HTMLElement)?.tagName === "BUTTON" || (e.target as HTMLElement)?.tagName === "A") return;
         e.preventDefault();
         if (!e.repeat) input.jump = true;
+        held.add(" ");
+        sync();
+        return;
+      }
+      // Powers: Q switches (Shift+Q goes back), F uses; K gets in or out of the kart.
+      if (k === "q" && !e.repeat) {
+        e.preventDefault();
+        g.cyclePower(e.shiftKey ? -1 : 1);
+        return;
+      }
+      if (k === "f") {
+        e.preventDefault();
+        if (!e.repeat) input.powerTaps++;
+        held.add("f");
+        sync();
+        return;
+      }
+      if (k === "n" && !e.repeat) {
+        e.preventDefault();
+        g.toggleNav();
+        return;
+      }
+      if (k === "k" && !e.repeat) {
+        e.preventDefault();
+        input.kartToggle = true;
         return;
       }
       if ((k === "e" || k === "enter") && g.near) {

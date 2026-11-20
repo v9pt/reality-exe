@@ -2,6 +2,16 @@
 
 import { Component, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { loadAll, type Entry } from "@/arcade/highscores";
+
+/** This device's best lap, as a one-entry table. */
+function kartLocal(): Entry[] {
+  try {
+    const v = Number(localStorage.getItem("reality.exe/kart-best"));
+    return v > 0 ? [{ score: v, at: 0 }] : [];
+  } catch {
+    return [];
+  }
+}
 import { nullfleet } from "@/arcade/nullfleet";
 import { skyhop } from "@/arcade/skyhop";
 import { snake } from "@/arcade/snake";
@@ -11,6 +21,7 @@ import { HUE_HEX } from "@/lib/sections";
 import { useGame } from "@/store/game";
 import { Sheet } from "../ui/Sheet";
 import { BugHunt } from "./BugHunt";
+import { CallsignEditor, Leaderboard } from "./GlobalBoard";
 import { GameScreen } from "./GameScreen";
 import { drawMini, drawNullFleet, drawSkyhop, drawSnake, drawStackfall } from "./render";
 
@@ -80,20 +91,6 @@ function stackSide(s: StackState) {
   );
 }
 
-function Scores({ list }: { list: Entry[] }) {
-  if (!list.length) return <p className="text-[13px] text-hud-dim">No scores yet on this device.</p>;
-  return (
-    <ol className="text-[14px]">
-      {list.map((e, i) => (
-        <li key={`${e.at}-${i}`} className="flex justify-between border-t border-hud/10 py-1.5 text-hud">
-          <span className="text-hud-dim">#{i + 1}</span>
-          <span>{e.score}</span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
 /**
  * The arcade: a picker of five original games, each with its controls, a
  * best-scores table kept in this browser, and touch controls on phones.
@@ -111,7 +108,12 @@ export function ArcadePanel() {
     [],
   );
   const [table, setTable] = useState(() => loadAll());
-  const refresh = useCallback(() => setTable(loadAll()), []);
+  const [version, setVersion] = useState(0);
+  const refresh = useCallback(() => {
+    setTable(loadAll());
+    setVersion((v) => v + 1);
+  }, []);
+  const [kartBoard, setKartBoard] = useState(false);
   const touch = useTouch();
   const meta = game ? gameById(game) : null;
 
@@ -135,7 +137,7 @@ export function ArcadePanel() {
   const played = table.played.filter((id) => CABINETS.includes(id)).length;
 
   return (
-    <Sheet glyph="遊技場" title={meta ? meta.title : "Arcade"} subtitle={meta ? `${meta.genre}. ${meta.blurb}` : `Five original games. Scores stay in this browser. Cabinets played: ${played} of ${CABINETS.length}.`} tone="dark" wide>
+    <Sheet glyph="遊技場" title={meta ? meta.title : "Arcade"} subtitle={meta ? `${meta.genre}. ${meta.blurb}` : `Five original games and the kart circuit. Every score goes on a global leaderboard under your callsign. Cabinets played: ${played} of ${CABINETS.length}.`} tone="dark" wide>
       {meta ? (
         <div>
           <button onClick={() => setGame(null)} className="mb-3 text-[13px] text-cyan hover:underline">
@@ -157,12 +159,29 @@ export function ArcadePanel() {
               </dl>
             </div>
             <div>
-              <h3 className="display text-[1.4rem] text-hud">Best on this device</h3>
-              <Scores list={table.scores[meta.id] ?? []} />
+              <h3 className="display text-[1.4rem] text-hud">Leaderboard</h3>
+              <Leaderboard game={meta.id} local={table.scores[meta.id] ?? []} version={version} />
             </div>
           </div>
         </div>
+      ) : kartBoard ? (
+        <div>
+          <button onClick={() => setKartBoard(false)} className="mb-3 text-[13px] text-cyan hover:underline">
+            ← All games
+          </button>
+          <p className="text-[14px] text-hud-dim">Fastest clean laps of the V9 circuit, south of the plaza. Press K for the kart, 0 to travel there.</p>
+          <div className="mt-3 max-w-md">
+            <Leaderboard game="kart" local={kartLocal()} version={version} />
+          </div>
+          <button onClick={() => useGame.getState().travel("circuit")} className="mt-4 bg-crimson px-4 py-1.5 text-[14px] font-bold text-night hover:bg-hud">
+            Go to the circuit
+          </button>
+        </div>
       ) : (
+        <>
+        <div className="mb-4">
+          <CallsignEditor />
+        </div>
         <ul className="grid gap-3 sm:grid-cols-2">
           {GAMES.map((g) => {
             const best = table.scores[g.id]?.[0]?.score;
@@ -186,7 +205,20 @@ export function ArcadePanel() {
               </li>
             );
           })}
+          <li>
+            <button onClick={() => setKartBoard(true)} className="group flex w-full items-start gap-4 border border-hud/15 p-4 text-left hover:border-hud/50 focus-visible:border-hud/50">
+              <span className="kanji grid h-14 w-14 shrink-0 place-items-center border text-[22px] text-crimson" style={{ borderColor: "#ff3b4f88" }}>
+                車
+              </span>
+              <span className="min-w-0">
+                <span className="display block text-[1.8rem] leading-none text-hud group-hover:text-white">Kart circuit</span>
+                <span className="mt-1 block text-[12px] text-crimson">Time trial</span>
+                <span className="mt-1 block text-[13px] text-hud-dim">Best laps of the circuit south of the plaza, from everyone who has driven it.</span>
+              </span>
+            </button>
+          </li>
         </ul>
+        </>
       )}
     </Sheet>
   );

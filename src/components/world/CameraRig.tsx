@@ -4,9 +4,10 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { BACKROOM_AT, sectionById } from "@/lib/sections";
-import { CITY_RANGE, generateBuildings, obstacleGrid } from "@/lib/world-map";
+
 import { orbitBy, panBy, zoomBy } from "@/lib/camera";
-import { avatar, input, useGame, view } from "@/store/game";
+import { avatar, hero, input, useGame, view } from "@/store/game";
+import { terrainFor } from "./terrain";
 import { FOG_DENSITY, fogDensity } from "./shaders";
 
 const _target = new THREE.Vector3();
@@ -27,7 +28,7 @@ const clamp = THREE.MathUtils.clamp;
 export function CameraRig({ cinematic }: { cinematic: boolean }) {
   const { camera, gl, size, scene, invalidate } = useThree();
   const quality = useGame((s) => s.quality);
-  const grid = useMemo(() => obstacleGrid(generateBuildings(CITY_RANGE[quality])), [quality]);
+  const grid = useMemo(() => terrainFor(quality).grid, [quality]);
   const arm = useMemo(() => ({ current: 1 }), []);
 
   // Mouse and touch on the canvas: one pointer orbits (or pans with the right
@@ -135,12 +136,14 @@ export function CameraRig({ cinematic }: { cinematic: boolean }) {
     // Follow: like a third-person action game, the camera swings back behind the
     // character while it runs, unless the visitor is looking around by hand or
     // running toward the camera.
+    const driving = hero.mode === "kart";
     if (mode === "follow" && !panelOpen && view.intro === 0 && avatar.speed > 0.6) {
-      const handsOff = (performance.now() - view.lookT) / 1000 > 1.1;
+      // In the kart the camera stays locked behind the car, like a racing game.
+      const handsOff = (performance.now() - view.lookT) / 1000 > (driving ? 0.6 : 1.1);
       const behind = avatar.heading + Math.PI;
       const diff = Math.atan2(Math.sin(behind - view.yaw), Math.cos(behind - view.yaw));
-      if (handsOff && Math.abs(diff) < 1.9) {
-        view.yaw += diff * (1 - Math.exp(-dt * 2.4 * Math.min(1, avatar.speed / 5)));
+      if (handsOff && (driving || Math.abs(diff) < 1.9)) {
+        view.yaw += diff * (1 - Math.exp(-dt * (driving ? 5 : 2.4) * Math.min(1, avatar.speed / 5)));
       }
     }
 
@@ -152,7 +155,8 @@ export function CameraRig({ cinematic }: { cinematic: boolean }) {
     const focusId = panelOpen ? g.focus : null;
     const wide = size.width >= 900;
     let k = 1 - Math.exp(-dt * (rm ? 60 : 4.5));
-    const ay = avatar.ground + avatar.y * 0.35;
+    // Small hops barely move the camera; big air (leaps, swings, roofs) is followed fully.
+    const ay = avatar.ground + avatar.y - Math.min(avatar.y, 2.5) * 0.65;
 
     if (focusId) {
       const at = focusId === "backroom" ? BACKROOM_AT : sectionById(focusId)?.at;
@@ -167,14 +171,14 @@ export function CameraRig({ cinematic }: { cinematic: boolean }) {
         _desiredLook.set(ax + oz * side, 2.2, az - ox * side);
       }
     } else {
-      const pitch = view.pitch[mode];
-      const dist = view.dist[mode];
+      const pitch = driving && mode === "follow" ? Math.min(view.pitch.follow, 0.3) : view.pitch[mode];
+      const dist = driving && mode === "follow" ? Math.max(view.dist.follow, 7.5) : view.dist[mode];
       if (mode === "overview") {
         // Centre between the plaza and the avatar, so both stay in frame.
         _pivot.set(avatar.x * 0.5, 0, avatar.z * 0.5);
       } else if (mode === "follow") {
         // Over the right shoulder, at head height.
-        const shoulder = 0.55 * (1 - view.intro);
+        const shoulder = driving ? 0 : 0.55 * (1 - view.intro);
         _pivot.set(avatar.x + Math.cos(view.yaw) * shoulder, ay + 1.75, avatar.z - Math.sin(view.yaw) * shoulder);
       } else {
         _pivot.set(avatar.x + view.panX, ay + 1.6, avatar.z + view.panZ);
@@ -214,7 +218,22 @@ export function CameraRig({ cinematic }: { cinematic: boolean }) {
       camera.position.lerp(_target, k);
       _look.lerp(_desiredLook, k);
     }
+    // Shake (slam landings, kart crashes), decaying quickly.
+    if (view.shake > 0.001 && !rm) {
+      camera.position.x += (Math.random() - 0.5) * view.shake;
+      camera.position.y += (Math.random() - 0.5) * view.shake;
+      view.shake *= Math.exp(-dt * 8);
+    } else view.shake = 0;
     camera.lookAt(_look);
+
+    // Widen the view at speed (Overdrive, the kart) for a sense of rush.
+    if (camera instanceof THREE.PerspectiveCamera) {
+      const fov = 55 + (rm ? 0 : clamp((hero.speed - 12) * 0.55, 0, 16));
+      if (Math.abs(camera.fov - fov) > 0.05) {
+        camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
+        camera.updateProjectionMatrix();
+      }
+    }
 
     // Thin the fog as the camera pulls back so the far city stays visible.
     const d = camera.position.distanceTo(_look);

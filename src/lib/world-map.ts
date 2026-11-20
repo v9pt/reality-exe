@@ -5,6 +5,7 @@
  *
  * Pure: no three.js, no DOM. Unit-tested in world-map.test.ts.
  */
+import { BARRIERS, BARRIER_HEIGHT, BARRIER_THICK } from "./circuit";
 import { BACKROOM_AT, SECTIONS } from "./sections";
 
 export type Vec2 = [number, number];
@@ -41,13 +42,21 @@ export const GARDEN = { x: -66, z: 0, r: 14 };
 export const POND = { x: -69, z: 3.5, r: 4 };
 export const RAMP_RECT = { x0: -AVENUE_HALF, x1: AVENUE_HALF, z0: -64, z1: -52 };
 export const OVERLOOK_RECT = { x0: -11, x1: 11, z0: -80, z1: -64 };
+/** The kart circuit south of the plaza, kept clear of buildings. */
+export const CIRCUIT_RECT = { x0: -44, x1: 44, z0: 58, z1: 110 };
+/** Solid furniture at the circuit: the grandstand on the infield and the start gantry posts. */
+export const CIRCUIT_SOLIDS = [
+  { x: 0, z: 79.35, w: 18, d: 3.6, h: 2.2 },
+  { x: 20, z: 64 - 5.2, w: 0.35, d: 0.35, h: 6.4 },
+  { x: 20, z: 64 + 5.2, w: 0.35, d: 0.35, h: 6.4 },
+];
 
 export const ZONES: Zone[] = [
   { id: "plaza", shape: { kind: "circle", x: 0, z: 0, r: PLAZA_R } },
   { id: "ring", shape: { kind: "ring", r0: RING_R0, r1: RING_R1 } },
   { id: "avenue-e", shape: { kind: "rect", x0: 14, x1: ARCADE_RECT.x0 + 0.5, z0: -AVENUE_HALF, z1: AVENUE_HALF } },
   { id: "avenue-w", shape: { kind: "rect", x0: GARDEN.x + GARDEN.r - 1, x1: -14, z0: -AVENUE_HALF, z1: AVENUE_HALF } },
-  { id: "avenue-s", shape: { kind: "rect", x0: -AVENUE_HALF, x1: AVENUE_HALF, z0: 14, z1: 50 } },
+  { id: "avenue-s", shape: { kind: "rect", x0: -AVENUE_HALF, x1: AVENUE_HALF, z0: 14, z1: CIRCUIT_RECT.z0 + 1 } },
   { id: "avenue-n", shape: { kind: "rect", x0: -AVENUE_HALF, x1: AVENUE_HALF, z0: RAMP_RECT.z1, z1: -14 } },
   {
     id: "ramp",
@@ -57,12 +66,13 @@ export const ZONES: Zone[] = [
   { id: "overlook", shape: { kind: "rect", ...OVERLOOK_RECT }, surface: { y: OVERLOOK_Y } },
   { id: "arcade", shape: { kind: "rect", ...ARCADE_RECT } },
   { id: "garden", shape: { kind: "circle", ...GARDEN } },
+  { id: "circuit", shape: { kind: "rect", ...CIRCUIT_RECT } },
   { id: "alley", shape: { kind: "segment", a: ALLEY_FROM, b: ALLEY_TO, half: ALLEY_HALF_WIDTH } },
   { id: "backroom", shape: { kind: "circle", x: BACKROOM_AT[0], z: BACKROOM_AT[1], r: BACKROOM_R } },
 ];
 
 /** Overall extent the maps draw (world units, square, centred on the plaza). */
-export const MAP_HALF = 96;
+export const MAP_HALF = 116;
 
 /* ───────────────────────── Geometry helpers ───────────────────────── */
 
@@ -158,6 +168,18 @@ export const GATE_POSTS: Vec2[] = [
   [GARDEN.x + GARDEN.r - 1.5, -2.6],
   [GARDEN.x + GARDEN.r - 1.5, 2.6],
 ];
+
+/** Highway support pillars: every 10°, leaving the four avenues clear. */
+export const HIGHWAY_PILLARS: Vec2[] = (() => {
+  const out: Vec2[] = [];
+  for (let i = 0; i < 36; i++) {
+    const a = (i / 36) * Math.PI * 2;
+    const toAxis = Math.min(...[0, Math.PI / 2, Math.PI, -Math.PI / 2, -Math.PI].map((ax) => Math.abs(Math.atan2(Math.sin(a - ax), Math.cos(a - ax)))));
+    if (toAxis < 0.2) continue;
+    out.push([Math.cos(a) * HIGHWAY_R, Math.sin(a) * HIGHWAY_R]);
+  }
+  return out;
+})();
 
 /** Round obstacles the avatar is pushed out of. */
 export const SOLIDS: { x: number; z: number; r: number }[] = [
@@ -271,6 +293,7 @@ export function generateBuildings(range: number): Building[] {
       const d = 7 + far() * 5;
       const seed = far();
       if (r <= range + 6 || r > outer) continue;
+      if (!clearForBuilding(x, z, footprintRadius({ w, d }))) continue;
       out.push({ x, z, w, d, h, rot: 0, seed });
     }
   }
@@ -295,7 +318,8 @@ export class ObstacleGrid {
 
   add(x: number, z: number, w: number, d: number, h: number, rot = 0, y0 = 0) {
     const box: Box = { x, z, hw: w / 2, hd: d / 2, h, cos: Math.cos(rot), sin: Math.sin(rot), y0 };
-    const r = Math.hypot(w, d) / 2;
+    // Registered a metre beyond the box so a body (up to kart size) in the next cell still finds it.
+    const r = Math.hypot(w, d) / 2 + 1;
     const c = this.cell;
     for (let ix = Math.floor((x - r) / c); ix <= Math.floor((x + r) / c); ix++) {
       for (let iz = Math.floor((z - r) / c); iz <= Math.floor((z + r) / c); iz++) {
@@ -305,6 +329,38 @@ export class ObstacleGrid {
         else this.cells.set(k, [box]);
       }
     }
+  }
+
+  /** Highest box top under (x, z) that is no higher than `limit` (-Infinity when none). */
+  topAt(x: number, z: number, limit: number, pad = 0.1) {
+    let best = -Infinity;
+    for (const b of this.at(x, z)) {
+      if (b.h > limit || b.h <= best) continue;
+      if (this.inside(b, x, z, pad)) best = b.h;
+    }
+    return best;
+  }
+
+  /** Would a body of radius r with feet at `feet` overlap the side of a box it can't step onto? */
+  wallAt(x: number, z: number, feet: number, r: number, stepUp: number, height: number) {
+    for (const b of this.at(x, z)) {
+      if (b.h <= feet + stepUp || b.y0 >= feet + height) continue;
+      if (this.inside(b, x, z, r)) return true;
+    }
+    return false;
+  }
+
+  /** Boxes registered in the cell under (x, z). */
+  at(x: number, z: number): readonly Box[] {
+    return this.cells.get(this.key(Math.floor(x / this.cell), Math.floor(z / this.cell))) ?? [];
+  }
+
+  private inside(b: Box, x: number, z: number, pad: number) {
+    const dx = x - b.x;
+    const dz = z - b.z;
+    const lx = dx * b.cos - dz * b.sin;
+    const lz = dx * b.sin + dz * b.cos;
+    return Math.abs(lx) < b.hw + pad && Math.abs(lz) < b.hd + pad;
   }
 
   /** Is the point inside any box (grown by `pad`)? */
@@ -349,6 +405,10 @@ export function obstacleGrid(buildings: Building[]) {
   // The overlook platform is solid below its deck.
   const o = OVERLOOK_RECT;
   g.add((o.x0 + o.x1) / 2, (o.z0 + o.z1) / 2, o.x1 - o.x0, o.z1 - o.z0, OVERLOOK_Y - 0.6);
+  for (const [x, z] of HIGHWAY_PILLARS) g.add(x, z, 1.1, 1.1, HIGHWAY_Y - 0.3);
+  for (const c of CIRCUIT_SOLIDS) g.add(c.x, c.z, c.w, c.d, c.h);
+  // Low walls along the circuit: karts bounce off them, on foot you can jump them.
+  for (const w of BARRIERS) g.add(w.x, w.z, w.len, BARRIER_THICK, BARRIER_HEIGHT, w.rot);
   return g;
 }
 

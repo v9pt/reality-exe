@@ -66,9 +66,25 @@ const STEPS: Step[] = [
     world: true,
   },
   {
+    id: "powers",
+    title: "Your powers",
+    body: "You get six: Grapple line (swing between rooftops), Elastic reach, Overdrive, Sky leap, Ground slam and Blink. Q switches, F uses. Hold F to keep swinging or to glide.",
+    touchBody: "You get six: Grapple line (swing between rooftops), Elastic reach, Overdrive, Sky leap, Ground slam and Blink. Switch picks one, Power uses it; hold to swing or glide.",
+    target: ["powers"],
+    world: true,
+  },
+  {
+    id: "kart",
+    title: "The kart",
+    body: "Press K and a go-kart rolls up wherever you are. Drive anywhere; Space drifts. South of the plaza (press 0) is a circuit that times every clean lap, and the best laps go on a board everyone sees.",
+    touchBody: "Tap Kart and a go-kart rolls up wherever you are. Drive anywhere; Drift slides. South of the plaza is a circuit that times every clean lap, and the best laps go on a board everyone sees.",
+    target: ["powers"],
+    world: true,
+  },
+  {
     id: "arcade",
     title: "The arcade",
-    body: "Five original games: a gap runner, a shooter, falling blocks, a snake and Bug Hunt. Best scores stay in your browser.",
+    body: "Five original games: a gap runner, a shooter, falling blocks, a snake and Bug Hunt. Every score goes on a global leaderboard under your callsign.",
     target: ["games"],
   },
   {
@@ -171,24 +187,93 @@ function VexBot({ talking, still }: { talking: boolean; still: boolean }) {
  */
 export function Vex({ flat, touch }: { flat: boolean; touch: boolean }) {
   const tour = useGame((s) => s.tour);
+  const [offer, setOffer] = useState(false);
 
-  // First visit: start after the intro settles, unless a deep link or a sheet is in the way.
+  // First visit: once the intro settles, Vex asks whether you'd like the tour.
+  // Never over a deep link or an open sheet.
   useEffect(() => {
     let seen = false;
     try {
       seen = localStorage.getItem(TOUR_KEY) === "1";
     } catch {
-      /* no storage: offer the tour */
+      /* no storage: ask */
     }
     if (seen || new URLSearchParams(window.location.search).has("go")) return;
     const t = setTimeout(() => {
-      if (!useGame.getState().panel) useGame.getState().startTour();
-    }, 1800);
+      if (!useGame.getState().panel) setOffer(true);
+    }, 1500);
     return () => clearTimeout(t);
   }, []);
 
-  // The tour body mounts fresh each time, so it always starts at step one.
-  return <AnimatePresence>{tour ? <Tour key="vex" flat={flat} touch={touch} /> : null}</AnimatePresence>;
+  const answer = (yes: boolean) => {
+    setOffer(false);
+    if (yes) useGame.getState().startTour();
+    else useGame.getState().endTour();
+  };
+
+  return (
+    <AnimatePresence>
+      {tour ? <Tour key="vex" flat={flat} touch={touch} /> : offer ? <Offer key="offer" onAnswer={answer} /> : null}
+    </AnimatePresence>
+  );
+}
+
+/** "Want the tour?" Asked once, on a first visit. */
+function Offer({ onAnswer }: { onAnswer: (yes: boolean) => void }) {
+  const reducedMotion = useGame((s) => s.reducedMotion);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onAnswer(false);
+      }
+    };
+    window.addEventListener("keydown", k, { capture: true });
+    // Opening a sheet counts as "not now".
+    const unsub = useGame.subscribe((s, p) => s.panel && !p.panel && onAnswer(false));
+    return () => {
+      window.removeEventListener("keydown", k, { capture: true });
+      unsub();
+    };
+  }, [onAnswer]);
+  return (
+    <motion.div
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="vex-offer-title"
+      className="fixed inset-0 z-[70] grid place-items-center bg-night/45 p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        className="flex w-full max-w-[400px] items-start gap-3 border border-cyan/40 bg-[#0b0c18]/95 p-5 text-hud shadow-[0_0_30px_rgba(62,232,224,0.15)]"
+        initial={reducedMotion ? false : { y: 24, scale: 0.96 }}
+        animate={{ y: 0, scale: 1 }}
+        transition={{ type: "spring", stiffness: 160, damping: 18 }}
+      >
+        <VexBot talking={false} still={reducedMotion} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] text-hud-dim">
+            <span className="kanji text-cyan">案内</span> Vex
+          </p>
+          <h2 id="vex-offer-title" className="display mt-1 text-[1.8rem] leading-none">
+            First time in District V9?
+          </h2>
+          <p className="mt-2 text-[14px] leading-snug text-hud/90">I can show you round: the portfolio, your powers, the kart and the arcade. It takes about a minute.</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button autoFocus onClick={() => onAnswer(true)} className="bg-cyan px-4 py-2 text-[14px] font-bold text-night hover:bg-hud">
+              Yes, show me round
+            </button>
+            <button onClick={() => onAnswer(false)} className="border border-hud/30 px-4 py-2 text-[14px] text-hud hover:border-hud">
+              No thanks
+            </button>
+          </div>
+          <p className="mt-3 text-[12px] text-hud-dim">You can take the tour later from Controls.</p>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
 }
 
 /** Types text out a couple of characters at a time; instant with reduced motion. Keyed per step. */

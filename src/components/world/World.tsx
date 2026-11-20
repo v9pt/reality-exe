@@ -7,6 +7,7 @@ import { useGame, type Quality } from "@/store/game";
 import { AdaptiveQuality, DPR } from "./AdaptiveQuality";
 import { Player } from "./Avatar";
 import { CameraRig } from "./CameraRig";
+import { Circuit } from "./Circuit";
 import { Districts } from "./Districts";
 import { PerfProbe } from "./PerfProbe";
 import { Buildings, Ground, Rain, Signs, Sky } from "./City";
@@ -57,6 +58,7 @@ export default function World({ cinematic, maxQuality, perf }: { cinematic: bool
         <Signs />
         <Landmarks />
         <Districts />
+        <Circuit />
         <Player />
         <CameraRig cinematic={cinematic} />
         <Rain />

@@ -18,6 +18,9 @@ const HINTS: Record<SecretId, string> = {
   arcade: "Every cabinet on the east strip wants one go.",
   overlook: "Some views are only up the ramp.",
   jukebox: "The plaza has a machine that plays songs.",
+  kart: "Press K. Mind the paintwork.",
+  lap: "The circuit south of the plaza times you.",
+  hero: "Six powers. Try them all.",
 };
 
 /**
