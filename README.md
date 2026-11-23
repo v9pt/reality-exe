@@ -14,10 +14,25 @@ npm run dev        # http://localhost:3100
 
 Production: `npm run build && npm start`.
 
+## Deploy
+
+Vercel (or any Node host) works with no extra setup; three things to set:
+
+| Variable | Needed for |
+| --- | --- |
+| `NEXT_PUBLIC_SITE_URL` | Your domain, e.g. `https://huzaifa.dev`, for share cards, the sitemap and robots. On Vercel the production URL is used when it's unset. |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | The global leaderboard on serverless hosts. A free Upstash database is enough. On Vercel, adding the Upstash (KV) integration sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which also work. |
+| `RESEND_API_KEY`, `CONTACT_TO_EMAIL`, `CONTACT_FROM_EMAIL` | The contact form (see below). |
+
+Everything is optional: without them the leaderboard and the contact form say
+they're offline and fall back gracefully. The build includes a share image
+(`/opengraph-image`), `robots.txt`, `sitemap.xml` and a 404 page, and responses
+carry basic security headers (`next.config.ts`).
+
 | Script | What it does |
 | --- | --- |
 | `npm run check` | Typecheck, lint, test and build: what CI runs |
-| `npm test` | Unit tests (Vitest) for collision, the world map, every game and the score table |
+| `npm test` | Unit tests (Vitest): physics and collision (including a fuzz test that powers never pass through buildings), the circuit and barriers, the world map, every game and the leaderboard stores |
 | `npm run coverage` | Tests with coverage for `src/lib` and `src/arcade` |
 | `npm run lint` | ESLint (Next.js core web vitals + TypeScript rules) |
 | `npm run format` | Prettier |
@@ -71,6 +86,7 @@ only plays after the server confirms a send.
 | 1 to 6 | Open a section |
 | 7, 8, 9, 0 | Travel to the Arcade, Garden, Overlook, Circuit |
 | N | Hide or show the quick menu |
+| T, Y | Next weather, next time of day |
 | Q / Shift+Q, F | Switch power, use power |
 | K | Get in or out of the kart |
 | `` ` `` | Terminal |
@@ -134,8 +150,11 @@ in the kart. Targets are kept inside the city's edge.
 | Ground slam | Dive and land with a shockwave; from the ground you spring up first. Works in the kart too |
 | Blink | Flash up to twelve metres forward. In the kart: a dash |
 
-The city is free roam: rooftops, the overlook and the elevated highway are all
-surfaces you can land on. Physics lives in `src/lib/motion.ts` (pure, tested).
+The city is free roam: rooftops, landmarks, the overlook and the elevated
+highway are all surfaces you can land on, and nothing passes through walls:
+every power moves you through the same collision as walking, and the frame
+loop moves you out if anything ever overlaps (landing in the pond, say).
+Physics lives in `src/lib/motion.ts` (pure, tested).
 
 **Kart:** K (or the Kart button) brings a go-kart to you. W/S drive, A steers
 left and D right, Space drifts, Overdrive boosts. **Circuit:** press 0. Cross the start line to
@@ -147,16 +166,54 @@ data and the lap timer are in `src/lib/circuit.ts`.
 ## Global leaderboard
 
 Every finished arcade game and every clean lap is posted to `/api/scores`
-under the visitor's callsign (changeable in the arcade or with `callsign` in
-the terminal). The server validates game and score ranges, rate-limits per
-address in memory, keeps the best 500 entries per game and counts every run.
-It stores only callsign, score and time.
+under the visitor's callsign (pick one in the arcade, on the kart lap board, or
+with `callsign` in the terminal). The board keeps **each player's best** per
+game, so one driver can't fill the top ten, and counts every run. Your own row
+is marked, and your rank shows even when you're outside the top ten. Open the
+lap board from the **Lap board** button at the circuit, the arcade's game list
+or `leaderboard kart` in the terminal.
+
+A player is a random id made on the visitor's device. It is never shown and
+only keeps two people with the same callsign apart. The server stores the id,
+callsign, score and time, never IP addresses. It refuses impossible scores
+(laps under four seconds, for instance), limits each address to 20 posts a
+minute and caps request size.
 
 Storage: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (or
 Vercel's `KV_REST_API_URL` / `KV_REST_API_TOKEN`) for serverless hosting.
 Without them scores go to `.data/scores.json` (`SCORES_FILE` to move it), which
 suits development and an always-on Node server. If the store can't be written,
-the board reports itself offline and scores stay on the visitor's device.
+the board says it is offline and scores stay on the visitor's device.
+
+## Weather, day and night
+
+The **天 Weather** button (top right) switches the weather and the time:
+
+- **Weather:** Clear, Rain, Storm (with soft lightning), Fog and Snow. Each
+  blends in over a few seconds; puddles dry out slowly and snow settles on
+  roofs, the ground and the track. T cycles through them.
+- **Time:** the sun and moon follow real solar geometry for New Delhi on the
+  visitor's date, so sunrise and sunset shift with the seasons, and the moon
+  shows its real phase. By default a day passes every 24 minutes; switch to
+  **My clock** to match the visitor's local time, or **Paused**. Dawn, Day,
+  Dusk and Night jump straight there (Y steps through them).
+- The choice and the time are remembered. First visits start at 19:30 in the
+  rain, so the city still opens at night.
+
+Everything is uniforms in the existing shaders (`src/lib/sky.ts` for the maths,
+`SkyDriver.tsx` writes them once a frame): no textures, no extra draw calls
+except the snowflakes. Lightning is off with reduced motion.
+Terminal: `weather snow`, `time dusk`, `time clock`.
+
+## Cat café
+
+North-east of the plaza, past the ring road (fast travel: **Cat café** in the
+menu, or `travel cafe`). Six original cats (Mochi, Tofu, Nori, Pixel, Kumo and
+Byte) wander, nap, groom and watch you. Walk up to one and press E, or click or
+tap it: it stops, purrs (a tiny synth purr if you've switched sound on) and
+hearts float up. Pet all six for a secret. The cats are a small seeded
+simulation in `src/lib/cats.ts` (tested); the café's walls and furniture are
+solid like everything else.
 
 ## Vex, the guide
 
@@ -240,4 +297,4 @@ tier, about 50–220 draw calls depending on the view.
 
 ## Secrets
 
-Ten of them. The hidden file (秘 counter, top right) lists hints.
+Fourteen of them. The hidden file (秘 counter, top right) lists hints.

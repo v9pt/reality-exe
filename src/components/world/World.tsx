@@ -7,7 +7,9 @@ import { useGame, type Quality } from "@/store/game";
 import { AdaptiveQuality, DPR } from "./AdaptiveQuality";
 import { Player } from "./Avatar";
 import { CameraRig } from "./CameraRig";
+import { Cafe } from "./Cafe";
 import { Circuit } from "./Circuit";
+import { SkyDriver } from "./SkyDriver";
 import { Districts } from "./Districts";
 import { PerfProbe } from "./PerfProbe";
 import { Buildings, Ground, Rain, Signs, Sky } from "./City";
@@ -48,9 +50,7 @@ export default function World({ cinematic, maxQuality, perf }: { cinematic: bool
       }}
     >
       <AdaptiveQuality max={maxQuality} />
-      <hemisphereLight args={["#6c5cff", "#1a0c1e", 0.55]} />
-      <directionalLight position={[-12, 20, 8]} intensity={0.6} color="#9fb6ff" />
-      <pointLight position={[0, 6, 0]} intensity={30} distance={26} color="#ff4f8a" decay={1.6} />
+      <SkyDriver />
       <Suspense fallback={null}>
         <Sky />
         <Ground />
@@ -59,6 +59,7 @@ export default function World({ cinematic, maxQuality, perf }: { cinematic: bool
         <Landmarks />
         <Districts />
         <Circuit />
+        <Cafe />
         <Player />
         <CameraRig cinematic={cinematic} />
         <Rain />

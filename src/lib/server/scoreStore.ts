@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { BOARD_SIZE, KEEP, LOWER_IS_BETTER, rankSort, type BoardEntry, type BoardGame } from "../leaderboard";
+import { BOARD_SIZE, KEEP, LOWER_IS_BETTER, better, rankSort, type BoardEntry, type BoardGame, type PlayerStanding } from "../leaderboard";
 
 /**
  * Where leaderboard entries live.
@@ -11,32 +11,44 @@ import { BOARD_SIZE, KEEP, LOWER_IS_BETTER, rankSort, type BoardEntry, type Boar
  *    development and any always-on Node server; on read-only serverless
  *    filesystems writes fail and the board reports itself offline.
  *
- * Only the callsign, the score and the time are stored. Never IP addresses.
+ * Each player keeps one entry per game: their best, under their latest
+ * callsign. Stored: player id (random, made on their device), callsign, score
+ * and time. Never IP addresses.
  */
+export type AddResult = { improved: boolean; you: PlayerStanding | null };
+export type TopResult = { board: BoardEntry[]; runs: number; players: number; you: PlayerStanding | null };
+
 export interface ScoreStore {
   kind: "redis" | "file";
-  add(game: BoardGame, entry: BoardEntry): Promise<{ rank: number | null }>;
-  top(game: BoardGame): Promise<{ board: BoardEntry[]; runs: number }>;
+  add(game: BoardGame, player: string, entry: BoardEntry): Promise<AddResult>;
+  top(game: BoardGame, player?: string | null): Promise<TopResult>;
 }
 
 export class StoreOffline extends Error {}
 
 /* ───────────── Redis (Upstash REST / Vercel KV) ───────────── */
 
-class RedisStore implements ScoreStore {
+type Cmd = (string | number)[];
+
+export class RedisStore implements ScoreStore {
   kind = "redis" as const;
   constructor(
     private url: string,
     private token: string,
   ) {}
 
-  private async pipeline(cmds: (string | number)[][]) {
-    const res = await fetch(`${this.url.replace(/\/$/, "")}/pipeline`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(cmds),
-      cache: "no-store",
-    });
+  private async pipeline(cmds: Cmd[]): Promise<unknown[]> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.url.replace(/\/$/, "")}/pipeline`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(cmds),
+        cache: "no-store",
+      });
+    } catch (e) {
+      throw new StoreOffline((e as Error).message);
+    }
     if (!res.ok) throw new StoreOffline(`redis ${res.status}`);
     const out = (await res.json()) as { result?: unknown; error?: string }[];
     const err = out.find((r) => r.error);
@@ -44,44 +56,69 @@ class RedisStore implements ScoreStore {
     return out.map((r) => r.result);
   }
 
-  private key = (game: BoardGame) => `reality:board:${game}`;
+  private board = (game: BoardGame) => `reality:best:${game}`;
+  private when = (game: BoardGame) => `reality:at:${game}`;
+  private runs = (game: BoardGame) => `reality:runs:${game}`;
+  private names = "reality:names";
 
-  async add(game: BoardGame, e: BoardEntry) {
-    const member = JSON.stringify({ n: e.name, t: e.at, r: Math.random().toString(36).slice(2, 7) });
-    const low = LOWER_IS_BETTER[game];
-    const [, , rank] = await this.pipeline([
-      ["ZADD", this.key(game), e.score, member],
-      ["INCR", `reality:runs:${game}`],
-      [low ? "ZRANK" : "ZREVRANK", this.key(game), member],
-      // Keep the best KEEP entries.
-      low ? ["ZREMRANGEBYRANK", this.key(game), KEEP, -1] : ["ZREMRANGEBYRANK", this.key(game), 0, -(KEEP + 1)],
-    ]);
-    return { rank: typeof rank === "number" ? rank + 1 : null };
+  private rankCmd(game: BoardGame, player: string): Cmd {
+    return [LOWER_IS_BETTER[game] ? "ZRANK" : "ZREVRANK", this.board(game), player];
   }
 
-  async top(game: BoardGame) {
+  private standing(rank: unknown, score: unknown): PlayerStanding | null {
+    return typeof rank === "number" && score !== null && score !== undefined ? { rank: rank + 1, score: Number(score) } : null;
+  }
+
+  async add(game: BoardGame, player: string, e: BoardEntry): Promise<AddResult> {
+    const [old] = await this.pipeline([["ZSCORE", this.board(game), player]]);
+    const improved = old === null || old === undefined || better(game, e.score, Number(old));
     const low = LOWER_IS_BETTER[game];
-    const [range, runs] = await this.pipeline([
-      low ? ["ZRANGE", this.key(game), 0, BOARD_SIZE - 1, "WITHSCORES"] : ["ZRANGE", this.key(game), 0, BOARD_SIZE - 1, "REV", "WITHSCORES"],
-      ["GET", `reality:runs:${game}`],
-    ]);
-    const flat = (range as string[]) ?? [];
-    const board: BoardEntry[] = [];
-    for (let i = 0; i + 1 < flat.length; i += 2) {
-      try {
-        const m = JSON.parse(flat[i]) as { n: string; t: number };
-        board.push({ name: m.n, at: m.t, score: Number(flat[i + 1]) });
-      } catch {
-        /* skip a malformed member */
-      }
+    const cmds: Cmd[] = [
+      ["HSET", this.names, player, e.name],
+      ["INCR", this.runs(game)],
+    ];
+    if (improved) {
+      cmds.push(["ZADD", this.board(game), e.score, player], ["HSET", this.when(game), player, e.at]);
+      // Keep the best KEEP players.
+      cmds.push(low ? ["ZREMRANGEBYRANK", this.board(game), KEEP, -1] : ["ZREMRANGEBYRANK", this.board(game), 0, -(KEEP + 1)]);
     }
-    return { board, runs: Number(runs ?? 0) || 0 };
+    cmds.push(this.rankCmd(game, player), ["ZSCORE", this.board(game), player]);
+    const out = await this.pipeline(cmds);
+    return { improved, you: this.standing(out[out.length - 2], out[out.length - 1]) };
+  }
+
+  async top(game: BoardGame, player?: string | null): Promise<TopResult> {
+    const low = LOWER_IS_BETTER[game];
+    const cmds: Cmd[] = [
+      low ? ["ZRANGE", this.board(game), 0, BOARD_SIZE - 1, "WITHSCORES"] : ["ZRANGE", this.board(game), 0, BOARD_SIZE - 1, "REV", "WITHSCORES"],
+      ["GET", this.runs(game)],
+      ["ZCARD", this.board(game)],
+    ];
+    if (player) cmds.push(this.rankCmd(game, player), ["ZSCORE", this.board(game), player]);
+    const [range, runs, players, rank, score] = await this.pipeline(cmds);
+    const flat = (range as string[] | null) ?? [];
+    const ids: string[] = [];
+    const scores: number[] = [];
+    for (let i = 0; i + 1 < flat.length; i += 2) {
+      ids.push(flat[i]);
+      scores.push(Number(flat[i + 1]));
+    }
+    let board: BoardEntry[] = [];
+    if (ids.length) {
+      const [names, ats] = (await this.pipeline([
+        ["HMGET", this.names, ...ids],
+        ["HMGET", this.when(game), ...ids],
+      ])) as (string | null)[][];
+      board = ids.map((id, i) => ({ name: names?.[i] ?? "Visitor", score: scores[i], at: Number(ats?.[i] ?? 0), ...(id === player ? { you: true } : {}) }));
+    }
+    return { board, runs: Number(runs ?? 0) || 0, players: Number(players ?? 0) || 0, you: player ? this.standing(rank, score) : null };
   }
 }
 
 /* ───────────── JSON file ───────────── */
 
-type FileData = { games: Partial<Record<BoardGame, BoardEntry[]>>; runs: Partial<Record<BoardGame, number>> };
+type Best = BoardEntry & { player: string };
+type FileData = { version: 2; games: Partial<Record<BoardGame, Best[]>>; runs: Partial<Record<BoardGame, number>> };
 
 export class FileStore implements ScoreStore {
   kind = "file" as const;
@@ -91,13 +128,21 @@ export class FileStore implements ScoreStore {
 
   private async load(): Promise<FileData> {
     if (this.data) return this.data;
+    let raw: Partial<FileData> & { version?: number } = {};
     try {
-      this.data = JSON.parse(await fs.readFile(this.file, "utf8")) as FileData;
+      raw = JSON.parse(await fs.readFile(this.file, "utf8"));
     } catch {
-      this.data = { games: {}, runs: {} };
+      /* new board */
     }
-    this.data.games ??= {};
-    this.data.runs ??= {};
+    const games: FileData["games"] = {};
+    for (const [g, list] of Object.entries(raw.games ?? {})) {
+      // Boards from before player ids: each old row becomes its own player.
+      games[g as BoardGame] = (list as (BoardEntry & { player?: string })[]).map((e, i) => ({
+        ...e,
+        player: e.player ?? `legacy${String(i).padStart(8, "0")}`,
+      }));
+    }
+    this.data = { version: 2, games, runs: raw.runs ?? {} };
     return this.data;
   }
 
@@ -112,24 +157,42 @@ export class FileStore implements ScoreStore {
     }
   }
 
-  add(game: BoardGame, e: BoardEntry) {
+  private standing(list: Best[], player: string | null | undefined): PlayerStanding | null {
+    if (!player) return null;
+    const i = list.findIndex((e) => e.player === player);
+    return i >= 0 ? { rank: i + 1, score: list[i].score } : null;
+  }
+
+  add(game: BoardGame, player: string, e: BoardEntry) {
     // Serialise writes so concurrent posts never clobber each other.
     const run = this.queue.then(async () => {
       const d = await this.load();
-      const list = [...(d.games[game] ?? []), e].sort(rankSort(game)).slice(0, KEEP);
-      d.games[game] = list;
+      const list = [...(d.games[game] ?? [])];
+      const i = list.findIndex((x) => x.player === player);
+      const improved = i < 0 || better(game, e.score, list[i].score);
+      if (i >= 0) list[i] = improved ? { ...e, player } : { ...list[i], name: e.name };
+      else list.push({ ...e, player });
+      // Keep the callsign current on every board this player is on.
+      for (const other of Object.values(d.games)) for (const x of other ?? []) if (x.player === player) x.name = e.name;
+      const sorted = list.sort(rankSort(game)).slice(0, KEEP);
+      d.games[game] = sorted;
       d.runs[game] = (d.runs[game] ?? 0) + 1;
       await this.save(d);
-      const i = list.indexOf(e);
-      return { rank: i >= 0 ? i + 1 : null };
+      return { improved, you: this.standing(sorted, player) };
     });
     this.queue = run.catch(() => undefined);
     return run;
   }
 
-  async top(game: BoardGame) {
+  async top(game: BoardGame, player?: string | null) {
     const d = await this.load();
-    return { board: (d.games[game] ?? []).slice(0, BOARD_SIZE), runs: d.runs[game] ?? 0 };
+    const list = d.games[game] ?? [];
+    return {
+      board: list.slice(0, BOARD_SIZE).map(({ player: id, ...e }) => (id === player ? { ...e, you: true } : e)),
+      runs: d.runs[game] ?? 0,
+      players: list.length,
+      you: this.standing(list, player),
+    };
   }
 }
 

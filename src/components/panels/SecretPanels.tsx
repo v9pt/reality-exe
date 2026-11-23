@@ -21,6 +21,7 @@ const HINTS: Record<SecretId, string> = {
   kart: "Press K. Mind the paintwork.",
   lap: "The circuit south of the plaza times you.",
   hero: "Six powers. Try them all.",
+  cafe: "Six cats past the ring road, each waiting for a scratch.",
 };
 
 /**

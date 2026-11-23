@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { BACKROOM_AT, sectionById } from "@/lib/sections";
 
 import { orbitBy, panBy, zoomBy } from "@/lib/camera";
-import { avatar, hero, input, useGame, view } from "@/store/game";
+import { avatar, env, hero, input, useGame, view } from "@/store/game";
 import { terrainFor } from "./terrain";
 import { FOG_DENSITY, fogDensity } from "./shaders";
 
@@ -237,7 +237,8 @@ export function CameraRig({ cinematic }: { cinematic: boolean }) {
 
     // Thin the fog as the camera pulls back so the far city stays visible.
     const d = camera.position.distanceTo(_look);
-    const density = FOG_DENSITY * clamp(16 / Math.max(d, 1), 0.16, 1);
+    // Weather thickens or thins it (fog, snow, clear).
+    const density = FOG_DENSITY * clamp(16 / Math.max(d, 1), 0.16, 1) * env.w.fog;
     fogDensity.value = density;
     if (scene.fog instanceof THREE.FogExp2) scene.fog.density = density;
   });

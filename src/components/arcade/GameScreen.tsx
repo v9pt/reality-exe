@@ -131,7 +131,7 @@ export function GameScreen<S extends Evented>({
           // Every finished run goes to the global board under the visitor's callsign.
           if (score >= LIMITS[meta.id].min) {
             void postScore(meta.id, score).then((r) => {
-              setResult((cur) => (cur && cur.score === score ? { ...cur, global: r.ok ? (r.rank ? `#${r.rank} worldwide` : "logged") : "offline" } : cur));
+              setResult((cur) => (cur && cur.score === score ? { ...cur, global: r.ok ? (r.you ? `#${r.you.rank} of ${r.players} worldwide` : "logged") : r.code === "rate_limited" ? "not logged: too many at once" : "offline" } : cur));
               onScores();
             });
           }

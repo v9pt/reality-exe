@@ -8,6 +8,7 @@ import { HUE_HEX } from "@/lib/sections";
 import { CIRCUIT_RECT, CIRCUIT_SOLIDS } from "@/lib/world-map";
 import { hero } from "@/store/game";
 import { fogUniforms } from "./City";
+import { envChunk } from "./shaders";
 import { glowTexture, signTexture } from "./textures";
 
 const trackVertex = /* glsl */ `
@@ -25,6 +26,7 @@ const trackVertex = /* glsl */ `
 const trackFragment = /* glsl */ `
   uniform vec3 uFogColor;
   uniform float uFogDensity;
+  ${envChunk}
   varying vec2 vTrack;
   varying vec3 vWorld;
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -43,6 +45,11 @@ const trackFragment = /* glsl */ `
     vec2 cell = floor(vec2(vTrack.x * 2.5, vTrack.y * 5.0));
     float chk = mod(cell.x + cell.y, 2.0);
     col = mix(col, vec3(chk) * 0.9, onLine * (1.0 - kerb));
+    // By day the same paint and asphalt, lit by the sun and sky; snow dusts the edges.
+    vec3 lit = uAmbient + uSunCol * max(uSunDir.y, 0.0) * 0.9;
+    col = mix(col, (col + vec3(0.09)) * lit, uDay);
+    col = mix(col, vec3(0.88, 0.9, 0.95) * (0.2 + 0.8 * lit.g), uSnow * 0.55 * smoothstep(0.4, 0.95, across));
+    col += uFlash * 0.25 * vec3(0.75, 0.8, 1.0);
     float fogD = length(vWorld - cameraPosition);
     float fogF = 1.0 - exp(-uFogDensity * uFogDensity * fogD * fogD);
     col = mix(col, uFogColor, clamp(fogF, 0.0, 1.0));

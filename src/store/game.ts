@@ -1,5 +1,8 @@
 "use client";
 
+import type { PlayerStanding } from "@/lib/leaderboard";
+import { CafeSim } from "@/lib/cats";
+import { PRESET_TIMES, WEATHER, WEATHERS, clockHours, type PresetTime, type TimeMode, type Weather, type WeatherState } from "@/lib/sky";
 import { create } from "zustand";
 import type { GameId } from "@/lib/arcade";
 import { districtById, type DistrictId, type PanelId, type SectionId } from "@/lib/sections";
@@ -11,7 +14,7 @@ export type Phase = "boot" | "world";
 export type Quality = "low" | "medium" | "high";
 export type CameraMode = "follow" | "free" | "overview";
 /** What the avatar is standing next to: a section, the alley, a district or an arcade cabinet. */
-export type NearId = SectionId | "backroom" | DistrictId | "jukebox" | `cab:${GameId}`;
+export type NearId = SectionId | "backroom" | DistrictId | "jukebox" | `cab:${GameId}` | `cat:${number}`;
 export type FocusId = SectionId | "backroom" | null;
 
 export type SecretId =
@@ -27,7 +30,8 @@ export type SecretId =
   | "jukebox"
   | "kart"
   | "lap"
-  | "hero";
+  | "hero"
+  | "cafe";
 
 export const SECRET_LABELS: Record<SecretId, string> = {
   konami: "Entered the old code",
@@ -43,6 +47,7 @@ export const SECRET_LABELS: Record<SecretId, string> = {
   kart: "Took the kart out",
   lap: "Set a clean lap",
   hero: "Used every power",
+  cafe: "Petted every café cat",
 };
 
 export type Toast = { id: number; title: string; body?: string; tone: "secret" | "info" };
@@ -82,6 +87,17 @@ type State = {
   cyclePower: (dir: 1 | -1) => void;
   /** Mirrors whether the visitor is driving, for the HUD. */
   driving: boolean;
+  /** Weather and how the clock runs (cycle, the visitor's clock, or paused). */
+  weather: Weather;
+  timeMode: TimeMode;
+  setWeather: (w: Weather) => void;
+  cycleWeather: () => void;
+  setTimeMode: (m: TimeMode) => void;
+  /** Jump to dawn, day, dusk or night (switches "Match my clock" to the cycle). */
+  jumpTo: (p: PresetTime) => void;
+  /** Times each café cat has been petted, by index. */
+  cafePets: number[];
+  petCafeCat: (i: number) => void;
   /** The quick menu (sections, travel, games) is expanded. */
   navOpen: boolean;
   toggleNav: (open?: boolean) => void;
@@ -90,6 +106,9 @@ type State = {
   setCamMode: (m: CameraMode) => void;
   cycleCamMode: () => void;
   openGame: (g: GameId | null) => void;
+  /** The arcade sheet should show the kart lap board. */
+  kartBoard: boolean;
+  openKartBoard: () => void;
   /** Act on whatever the avatar is near: open a section, a cabinet or the alley. */
   interact: (n: NearId) => void;
   travel: (d: DistrictId) => void;
@@ -116,7 +135,7 @@ const STORAGE_KEY = "reality.exe/v1";
 export const TOUR_KEY = "reality.exe/tour-seen";
 export const NAV_KEY = "reality.exe/nav";
 
-type Saved = Pick<State, "secrets" | "visited" | "backroomOpen" | "catPets">;
+type Saved = Pick<State, "secrets" | "visited" | "backroomOpen" | "catPets" | "cafePets">;
 
 function load(): Partial<Saved> {
   if (typeof window === "undefined") return {};
@@ -149,6 +168,9 @@ export const useGame = create<State>()((set, get) => ({
   power: "grapple",
   driving: false,
   navOpen: true,
+  weather: "rain",
+  timeMode: "cycle",
+  cafePets: [],
   quality: "medium",
   dpr: null,
   reducedMotion: false,
@@ -172,6 +194,8 @@ export const useGame = create<State>()((set, get) => ({
       visited: saved.visited ?? [],
       backroomOpen: saved.backroomOpen ?? false,
       catPets: saved.catPets ?? 0,
+      cafePets: saved.cafePets ?? [],
+      ...loadEnv(),
     });
   },
 
@@ -249,6 +273,35 @@ export const useGame = create<State>()((set, get) => ({
     const i = POWERS.findIndex((p) => p.id === get().power);
     get().setPower(POWERS[(i + dir + POWERS.length) % POWERS.length].id);
   },
+  setWeather: (weather) => {
+    set({ weather });
+    saveEnv();
+  },
+  cycleWeather: () => get().setWeather(WEATHERS[(WEATHERS.indexOf(get().weather) + 1) % WEATHERS.length]),
+  setTimeMode: (timeMode) => {
+    if (timeMode === "clock") env.hours = clockHours(new Date());
+    set({ timeMode });
+    saveEnv();
+  },
+  jumpTo: (p) => {
+    env.hours = PRESET_TIMES[p];
+    if (get().timeMode === "clock") set({ timeMode: "cycle" });
+    saveEnv();
+  },
+  petCafeCat: (i) => {
+    const cat = cafe.cats[i];
+    if (!cat) return;
+    cafe.pet(i);
+    music.purr();
+    const cafePets = [...get().cafePets];
+    while (cafePets.length <= i) cafePets.push(0);
+    cafePets[i]++;
+    set({ cafePets });
+    persist();
+    const met = cafe.cats.filter((_, k) => (cafePets[k] ?? 0) > 0).length;
+    get().toast({ tone: "info", title: `${cat.name} purrs`, body: cafePets[i] === 1 ? `You've met ${met} of ${cafe.cats.length} café cats.` : `Pets for ${cat.name}: ${cafePets[i]}.` });
+    if (met === cafe.cats.length) get().unlock("cafe");
+  },
   toggleNav: (open) => {
     const navOpen = open ?? !get().navOpen;
     set({ navOpen });
@@ -279,7 +332,12 @@ export const useGame = create<State>()((set, get) => ({
     get().setCamMode(order[(order.indexOf(get().camMode) + 1) % order.length]);
   },
   openGame: (arcadeGame) => {
-    set({ arcadeGame });
+    set({ arcadeGame, kartBoard: false });
+    get().open("arcade");
+  },
+  kartBoard: false,
+  openKartBoard: () => {
+    set({ arcadeGame: null, kartBoard: true });
     get().open("arcade");
   },
   interact: (n) => {
@@ -288,9 +346,10 @@ export const useGame = create<State>()((set, get) => ({
       get().unlock("jukebox");
       return;
     }
+    if (n.startsWith("cat:")) return get().petCafeCat(Number(n.slice(4)));
     if (n.startsWith("cab:")) get().openGame(n.slice(4) as GameId);
     else if (n === "arcade") get().openGame(null);
-    else if (n === "garden" || n === "overlook" || n === "circuit") return;
+    else if (n === "garden" || n === "overlook" || n === "circuit" || n === "cafe") return;
     else get().open(n as PanelId);
   },
   travel: (id) => {
@@ -310,8 +369,8 @@ export const useGame = create<State>()((set, get) => ({
 }));
 
 function persist() {
-  const { secrets, visited, backroomOpen, catPets } = useGame.getState();
-  save({ secrets, visited, backroomOpen, catPets });
+  const { secrets, visited, backroomOpen, catPets, cafePets } = useGame.getState();
+  save({ secrets, visited, backroomOpen, catPets, cafePets });
 }
 
 /**
@@ -344,6 +403,52 @@ export type HeroMode = "walk" | "air" | "swing" | "kart";
  * Live state of the visitor's character, written by the frame loop and read
  * by the HUD on its own timer (never React state per frame).
  */
+/**
+ * The live sky: time of day and the weather as it blends, updated by the
+ * world's SkyDriver every frame and read by the HUD. Kept outside React state.
+ */
+export const env = {
+  /** Local time of day in the city, 0 to 24. Starts at dusk so the city first appears at night. */
+  hours: 19.5,
+  /** The weather as currently blended (see sky.ts). */
+  w: { ...WEATHER.rain } as WeatherState,
+  /** Lightning flash, 0 to 1. */
+  flash: 0,
+};
+
+const ENV_KEY = "reality.exe/sky";
+
+function loadEnv(): Partial<Pick<State, "weather" | "timeMode">> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ENV_KEY) ?? "null") as { weather?: Weather; timeMode?: TimeMode; hours?: number } | null;
+    if (!raw) return {};
+    const out: Partial<Pick<State, "weather" | "timeMode">> = {};
+    if (raw.weather && WEATHERS.includes(raw.weather)) {
+      out.weather = raw.weather;
+      Object.assign(env.w, WEATHER[raw.weather]);
+    }
+    if (raw.timeMode === "cycle" || raw.timeMode === "clock" || raw.timeMode === "paused") out.timeMode = raw.timeMode;
+    if (typeof raw.hours === "number" && raw.hours >= 0 && raw.hours < 24) env.hours = raw.hours;
+    if (out.timeMode === "clock") env.hours = clockHours(new Date());
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Remember the weather, the clock mode and the time (called on changes and every few seconds). */
+export function saveEnv() {
+  try {
+    const { weather, timeMode } = useGame.getState();
+    localStorage.setItem(ENV_KEY, JSON.stringify({ weather, timeMode, hours: Math.round(env.hours * 1000) / 1000 }));
+  } catch {
+    /* private mode: the sky starts fresh next visit */
+  }
+}
+
+/** The café's cats (simulated by the world, petted through the store). */
+export const cafe = new CafeSim();
+
 export const hero = {
   mode: "walk" as HeroMode,
   energy: ENERGY_MAX,
@@ -352,7 +457,7 @@ export const hero = {
   speed: 0,
   /** Flash on the energy bar when a power was refused. */
   deniedAt: 0,
-  lap: { running: false, startedAt: 0, valid: true, passed: 0, lastMs: null as number | null, bestMs: null as number | null, lastEventAt: 0, lastEvent: "" },
+  lap: { running: false, startedAt: 0, valid: true, passed: 0, lastMs: null as number | null, bestMs: null as number | null, lastEventAt: 0, lastEvent: "", posted: null as PlayerStanding | null, postedAt: 0 },
 };
 /**
  * Avatar position, written by the render loop, read by the map.
@@ -390,5 +495,5 @@ export const CAMERA_LIMITS: Record<CameraMode, { pitch: [number, number]; dist: 
 
 if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
   // Handy in dev tools: __reality.game.getState(), __reality.avatar
-  (window as unknown as Record<string, unknown>).__reality = { game: useGame, avatar, input, view, music, hero };
+  (window as unknown as Record<string, unknown>).__reality = { game: useGame, avatar, input, view, music, hero, env, cafe };
 }

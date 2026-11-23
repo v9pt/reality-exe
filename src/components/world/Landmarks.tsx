@@ -1,13 +1,15 @@
 "use client";
 
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { BACKROOM_AT, HUE_HEX, SECTIONS, type Section, type SectionId } from "@/lib/sections";
 import { useGame } from "@/store/game";
 import { JOKES } from "@/lib/jokes";
 import { music } from "@/lib/music/engine";
 import { JUKEBOX_AT } from "@/lib/world-map";
+import { CatModel, newCatParts, poseCat } from "./CatModel";
+import type { CatLook } from "@/lib/cats";
 import { glowTexture, screenTexture, signTexture, slipTexture } from "./textures";
 
 /* Shared, cheap materials. Neon parts are unlit basic materials: they carry their own light. */
@@ -402,44 +404,23 @@ function Jukebox() {
 
 /* ─────────────── The back alley ─────────────── */
 
+const ALLEY_CAT: CatLook = { fur: "#16161c", accent: "#16161c", eye: "#ffb547", pattern: "solid" };
+
+/** The back-alley cat: sits by the wall, tail swishing. Click to pet. */
 function Cat() {
   const petCat = useGame((s) => s.petCat);
   const toast = useGame((s) => s.toast);
   const pets = useGame((s) => s.catPets);
-  const tail = useRef<THREE.Group>(null);
   const reducedMotion = useGame((s) => s.reducedMotion);
-  useFrame(({ clock }) => {
-    if (tail.current && !reducedMotion) tail.current.rotation.z = Math.sin(clock.elapsedTime * 2.2) * 0.35;
-  });
+  const [parts] = useState(newCatParts);
+  useFrame(({ clock }) => poseCat(parts, "sit", clock.elapsedTime, 0, reducedMotion));
   const onClick = useClick(() => {
     petCat();
     toast({ tone: "info", title: pets > 4 ? "The cat has had enough" : "Purr", body: pets > 4 ? "It walks off, then comes back. Cats." : `Pets given: ${pets + 1}` });
   });
-  const fur = useMemo(() => new THREE.MeshStandardMaterial({ color: "#16161c", roughness: 0.9 }), []);
-  const eye = useMemo(() => neon("#ffb547"), []);
   return (
     <group position={[BACKROOM_AT[0] + 1.6, 0, BACKROOM_AT[1] + 0.6]} rotation-y={0.8} onClick={onClick} onPointerOver={hoverOn} onPointerOut={hoverOff}>
-      <mesh material={fur} position={[0, 0.32, 0]} scale={[0.26, 0.24, 0.48]}>
-        <sphereGeometry args={[1, 12, 10]} />
-      </mesh>
-      <mesh material={fur} position={[0, 0.6, 0.4]} scale={0.2}>
-        <sphereGeometry args={[1, 12, 10]} />
-      </mesh>
-      {[-0.1, 0.1].map((x) => (
-        <mesh key={x} material={fur} position={[x, 0.8, 0.42]}>
-          <coneGeometry args={[0.06, 0.14, 4]} />
-        </mesh>
-      ))}
-      {[-0.07, 0.07].map((x) => (
-        <mesh key={x} material={eye} position={[x, 0.63, 0.58]}>
-          <sphereGeometry args={[0.025, 6, 6]} />
-        </mesh>
-      ))}
-      <group ref={tail} position={[0, 0.4, -0.42]}>
-        <mesh material={fur} position={[0, 0.25, -0.05]} rotation-x={-0.4}>
-          <cylinderGeometry args={[0.035, 0.05, 0.55, 6]} />
-        </mesh>
-      </group>
+      <CatModel look={ALLEY_CAT} parts={parts} />
       <mesh position={[0, 0.5, 0]} visible={false}>
         <boxGeometry args={[1, 1.2, 1.4]} />
       </mesh>

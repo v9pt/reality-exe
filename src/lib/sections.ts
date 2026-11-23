@@ -31,12 +31,13 @@ export const SECTIONS: Section[] = [
 ];
 
 /** Outer districts. Reached on foot down the avenues, or by fast travel. */
-export type DistrictId = "arcade" | "garden" | "overlook" | "circuit";
+export type DistrictId = "arcade" | "garden" | "overlook" | "circuit" | "cafe";
 
 export type District = {
   id: DistrictId;
   name: string;
   glyph: string;
+  /** Number key for fast travel; empty when the district has none. */
   hotkey: string;
   /** Centre of the district (x, z), used for labels and maps. */
   at: [number, number];
@@ -54,6 +55,7 @@ export const DISTRICTS: District[] = [
   { id: "garden", name: "Garden", glyph: "庭園", hotkey: "8", at: [-66, 0], spawn: [-55, 0], face: -Math.PI / 2, labelY: 6.5, hue: "cyan", blurb: "Trees and a still pond at the end of the west avenue." },
   { id: "overlook", name: "Overlook", glyph: "展望台", hotkey: "9", at: [0, -72], spawn: [0, -67], face: Math.PI, labelY: 11, hue: "amber", blurb: "A raised deck north of the plaza. Take the ramp up." },
   { id: "circuit", name: "Circuit", glyph: "競走", hotkey: "0", at: [0, 84], spawn: [-3, 60], face: 0, labelY: 9, hue: "crimson", blurb: "A kart track south of the plaza. Press K for the kart; every clean lap is timed." },
+  { id: "cafe", name: "Cat café", glyph: "猫茶屋", hotkey: "", at: [50, -50], spawn: [43.5, -41], face: 2.55, labelY: 6.5, hue: "amber", blurb: "Six cats and a counter, north-east of the plaza past the ring road. Walk up to a cat and press E to pet it." },
 ];
 
 /** Hidden alley, revealed by walking there or by `cd backroom`. */

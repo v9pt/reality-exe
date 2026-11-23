@@ -7,9 +7,10 @@ import { GAMES, gameById } from "@/lib/arcade";
 import { formatLap } from "@/lib/circuit";
 import { BOARD_GAMES, LOWER_IS_BETTER, callsign, fetchBoard, setCallsign, type BoardGame } from "@/lib/leaderboard";
 import { POWERS } from "@/lib/powers";
+import { PRESET_TIMES, WEATHERS, WEATHER_LABEL, formatClock, type PresetTime, type TimeMode, type Weather } from "@/lib/sky";
 import { TRACKS, music } from "@/lib/music/engine";
 import { DISTRICTS, SECTIONS, districtById, sectionById, type PanelId } from "@/lib/sections";
-import { SECRET_LABELS, useGame } from "@/store/game";
+import { SECRET_LABELS, env, useGame } from "@/store/game";
 import { Sheet } from "../ui/Sheet";
 
 type Out = { id: number; kind: "in" | "out" | "err" | "sys"; body: React.ReactNode };
@@ -242,8 +243,41 @@ const COMMANDS: Record<string, Command> = {
       void fetchBoard(game).then((r) => {
         if (!r.ok) return print(r.message, "err");
         if (!r.board.length) return print("Nobody has posted yet. Be the first.");
-        print(r.board.map((e, i) => `${String(i + 1).padStart(2)}. ${e.name.padEnd(16)} ${LOWER_IS_BETTER[game] ? formatLap(e.score) : e.score}`).join("\n") + `\n${r.runs} runs logged.`);
+        const fmt = (n: number) => (LOWER_IS_BETTER[game] ? formatLap(n) : String(n));
+        const mine = r.you && !r.board.some((e) => e.you) ? `\nYou: #${r.you.rank}  ${fmt(r.you.score)}` : "";
+        print(r.board.map((e, i) => `${String(i + 1).padStart(2)}. ${e.name.padEnd(16)} ${fmt(e.score)}${e.you ? "  ← you" : ""}`).join("\n") + mine + `\n${r.players} players, ${r.runs} runs logged.`);
       });
+    },
+  },
+  weather: {
+    help: "Change the weather: weather clear | rain | storm | fog | snow",
+    args: () => WEATHERS,
+    run: ({ print, args }) => {
+      const g = useGame.getState();
+      if (!args.length) return print(`It's ${WEATHER_LABEL[g.weather].toLowerCase()} in District V9. Try \`weather ${WEATHERS.filter((w) => w !== g.weather).join(" | ")}\`.`);
+      const w = args[0].toLowerCase() as Weather;
+      if (!WEATHERS.includes(w)) return print(`Weathers: ${WEATHERS.join(", ")}`, "err");
+      g.setWeather(w);
+      print(`Weather set to ${WEATHER_LABEL[w].toLowerCase()}.`, "sys");
+    },
+  },
+  time: {
+    help: "Set the time of day: time dawn | day | dusk | night | clock | cycle | pause",
+    args: () => ["dawn", "day", "dusk", "night", "clock", "cycle", "pause"],
+    run: ({ print, args }) => {
+      const g = useGame.getState();
+      const a = (args[0] ?? "").toLowerCase();
+      const mode = g.timeMode === "clock" ? "following your clock" : g.timeMode === "paused" ? "paused" : "a day every 24 minutes";
+      if (!a) return print(`It's ${formatClock(env.hours)} in District V9 (${mode}).`);
+      if (a in PRESET_TIMES) {
+        g.jumpTo(a as PresetTime);
+        return print(`Skipped to ${a}: ${formatClock(env.hours)}.`, "sys");
+      }
+      if (a === "clock" || a === "cycle" || a === "pause" || a === "paused") {
+        g.setTimeMode(a === "pause" ? "paused" : (a as TimeMode));
+        return print(a === "clock" ? `The sky now follows your clock: ${formatClock(env.hours)}.` : a === "cycle" ? "A day now passes every 24 minutes." : "Time is paused.", "sys");
+      }
+      print("Usage: time dawn | day | dusk | night | clock | cycle | pause", "err");
     },
   },
   callsign: {
@@ -280,7 +314,7 @@ const COMMANDS: Record<string, Command> = {
     },
   },
   travel: {
-    help: "Go to the arcade, garden or overlook",
+    help: "Go to a district: arcade, garden, overlook, circuit or cafe",
     args: () => DISTRICTS.map((d) => d.id),
     run: ({ print, args }) => {
       const d = districtById(args[0] ?? "") ?? DISTRICTS.find((x) => args[0] && x.name.toLowerCase().startsWith(args[0].toLowerCase()));

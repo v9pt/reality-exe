@@ -88,6 +88,14 @@ const STEPS: Step[] = [
     target: ["games"],
   },
   {
+    id: "weather",
+    title: "Weather and time",
+    body: "Switch between clear skies, rain, a storm, fog and snow, and pick dawn, day, dusk or night. A full day passes every 24 minutes, or the sky can follow your own clock. T and Y are the shortcuts.",
+    touchBody: "Switch between clear skies, rain, a storm, fog and snow, and pick dawn, day, dusk or night. A full day passes every 24 minutes, or the sky can follow your own clock.",
+    target: ["weather"],
+    world: true,
+  },
+  {
     id: "music",
     title: "Music",
     body: `${TRACKS.length} original tracks, played live by your browser. Start them here, at the plaza jukebox, or with M.`,

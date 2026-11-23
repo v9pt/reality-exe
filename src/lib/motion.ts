@@ -17,34 +17,75 @@ export const WORLD_RADIUS = 230;
 
 export type Body = { x: number; y: number; z: number; vx: number; vy: number; vz: number; grounded: boolean };
 
+/** Thickness of the elevated highway's deck, which you can't pass through from the side or below. */
+const DECK = 0.8;
+
 export class Terrain {
   constructor(
     readonly grid: ObstacleGrid,
     readonly buildings: Building[],
   ) {}
 
-  /** Highest surface under (x, z) that a body with feet at `feet` can stand on. */
-  support(x: number, z: number, feet: number) {
+  /**
+   * Highest surface under (x, z) that a body with feet at `feet` can stand on.
+   * A body of radius r stands on an edge it overlaps, so it never slides down
+   * the side of a building and ends up inside it.
+   */
+  support(x: number, z: number, feet: number, r = AVATAR_RADIUS) {
     const limit = feet + STEP_UP;
     let top = 0;
     const zone = groundHeight(x, z);
     if (zone <= limit) top = zone;
-    const box = this.grid.topAt(x, z, limit, 0.15);
+    const box = this.grid.topAt(x, z, limit, r);
     if (box > top) top = box;
-    const r = Math.hypot(x, z);
-    if (Math.abs(r - HIGHWAY_R) <= HIGHWAY_HALF && HIGHWAY_Y <= limit && HIGHWAY_Y > top) top = HIGHWAY_Y;
+    const d = Math.hypot(x, z);
+    if (Math.abs(d - HIGHWAY_R) <= HIGHWAY_HALF + r && HIGHWAY_Y <= limit && HIGHWAY_Y > top) top = HIGHWAY_Y;
+    for (const s of SOLIDS) {
+      const h = s.y0 + s.h;
+      if (s.stand && h <= limit && h > top && Math.hypot(x - s.x, z - s.z) < s.r + r - AVATAR_RADIUS) top = h;
+    }
     return top;
+  }
+
+  /**
+   * Would a body of radius r with feet at `feet` overlap something it can't
+   * step onto (anything taller than `stepUp` above its feet)?
+   */
+  hits(x: number, z: number, feet: number, r: number, stepUp = STEP_UP) {
+    const d = Math.hypot(x, z);
+    if (d > WORLD_RADIUS) return true;
+    if (groundHeight(x, z) > feet + stepUp) return true;
+    if (this.grid.wallAt(x, z, feet, r, stepUp, BODY_HEIGHT)) return true;
+    if (Math.abs(d - HIGHWAY_R) < HIGHWAY_HALF + r && feet < HIGHWAY_Y - stepUp && feet + BODY_HEIGHT > HIGHWAY_Y - DECK) return true;
+    for (const s of SOLIDS) {
+      const top = s.y0 + s.h - (s.stand ? stepUp : 0);
+      if (feet < top && feet + BODY_HEIGHT > s.y0 && Math.hypot(x - s.x, z - s.z) < s.r + r - AVATAR_RADIUS) return true;
+    }
+    return false;
   }
 
   /** Is (x, z) blocked for a body of radius r with feet at `feet`? */
   blocked(x: number, z: number, feet: number, r: number) {
-    if (Math.hypot(x, z) > WORLD_RADIUS) return true;
-    if (groundHeight(x, z) > feet + STEP_UP) return true;
-    if (this.grid.wallAt(x, z, feet, r, STEP_UP, BODY_HEIGHT)) return true;
-    if (feet < 2.5) {
-      for (const s of SOLIDS) if (Math.hypot(x - s.x, z - s.z) < s.r + r - AVATAR_RADIUS) return true;
+    return this.hits(x, z, feet, r, STEP_UP);
+  }
+
+  /**
+   * The nearest free spot to a body that has ended up overlapping something
+   * (landing in the pond, a kart summoned against a wall), searching outward
+   * in rings. Null when there is none within `maxR`.
+   */
+  escape(x: number, z: number, feet: number, r: number, maxR = 4): [number, number] | null {
+    if (!this.blocked(x, z, feet, r)) return [x, z];
+    for (let d = 0.25; d <= maxR; d += 0.25) {
+      const n = Math.max(8, Math.round(d * 10));
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const px = x + Math.cos(a) * d;
+        const pz = z + Math.sin(a) * d;
+        if (!this.blocked(px, pz, feet, r)) return [px, pz];
+      }
     }
-    return false;
+    return null;
   }
 
   /**
@@ -73,7 +114,7 @@ export function stepGround(t: Terrain, b: Body, wantVx: number, wantVz: number, 
   b.vx = wantVx;
   b.vz = wantVz;
   t.slide(b, b.vx * dt, b.vz * dt, r);
-  const top = t.support(b.x, b.z, b.y);
+  const top = t.support(b.x, b.z, b.y, r);
   if (top < b.y - STEP_UP) {
     // Walked off a ledge: fall.
     b.grounded = false;
@@ -99,7 +140,7 @@ export function stepAir(t: Terrain, b: Body, steerX: number, steerZ: number, dt:
   const hit = t.slide(b, b.vx * dt, b.vz * dt, r);
   if (hit.hitX) b.vx = 0;
   if (hit.hitZ) b.vz = 0;
-  const top = t.support(b.x, b.z, b.y);
+  const top = t.support(b.x, b.z, b.y, r);
   const next = b.y + b.vy * dt;
   if (b.vy <= 0 && next <= top) {
     const impact = -b.vy;
@@ -108,8 +149,8 @@ export function stepAir(t: Terrain, b: Body, steerX: number, steerZ: number, dt:
     b.grounded = true;
     return impact;
   }
-  // Rising into a solid box from below stops the climb.
-  if (b.vy > 0 && t.grid.wallAt(b.x, b.z, next, r, 0, BODY_HEIGHT)) b.vy = 0;
+  // Rising into anything solid from below (a box, the highway deck) stops the climb.
+  if (b.vy > 0 && t.hits(b.x, b.z, next, r, 0)) b.vy = 0;
   else b.y = next;
   return 0;
 }
@@ -119,7 +160,7 @@ export function stepAir(t: Terrain, b: Body, steerX: number, steerZ: number, dt:
  * is the visitor's input in world space; the rope reels in slowly so each
  * swing gains height. Returns the new rope length.
  */
-export function stepSwing(t: Terrain, b: Body, anchor: [number, number, number], len: number, pushX: number, pushZ: number, dt: number, reel = 3) {
+export function stepSwing(t: Terrain, b: Body, anchor: [number, number, number], len: number, pushX: number, pushZ: number, dt: number, reel = 3, r = AVATAR_RADIUS) {
   b.vy -= GRAVITY * dt;
   b.vx += pushX * 14 * dt;
   b.vz += pushZ * 14 * dt;
@@ -127,10 +168,11 @@ export function stepSwing(t: Terrain, b: Body, anchor: [number, number, number],
   const drag = Math.exp(-0.15 * dt);
   b.vx *= drag;
   b.vz *= drag;
-  const hit = t.slide(b, b.vx * dt, b.vz * dt, AVATAR_RADIUS);
+  const hit = t.slide(b, b.vx * dt, b.vz * dt, r);
   if (hit.hitX) b.vx *= -0.2;
   if (hit.hitZ) b.vz *= -0.2;
-  b.y += b.vy * dt;
+  // Vertical move, landing on surfaces and stopping under them, as in stepAir.
+  b.y = verticalMove(t, b, b.y + b.vy * dt, r);
   // Rope constraint, measured from the hands (about 1.6 m above the feet).
   const dx = b.x - anchor[0];
   const dy = b.y + 1.6 - anchor[1];
@@ -141,9 +183,10 @@ export function stepSwing(t: Terrain, b: Body, anchor: [number, number, number],
     const nx = dx / d;
     const ny = dy / d;
     const nz = dz / d;
-    b.x = anchor[0] + nx * L;
-    b.y = anchor[1] + ny * L - 1.6;
-    b.z = anchor[2] + nz * L;
+    // Pull toward the rope's reach through the same collision as everything
+    // else, so a line anchored on a roof edge can't drag you into the wall.
+    t.slide(b, anchor[0] + nx * L - b.x, anchor[2] + nz * L - b.z, r);
+    b.y = verticalMove(t, b, anchor[1] + ny * L - 1.6, r);
     const radial = b.vx * nx + b.vy * ny + b.vz * nz;
     if (radial > 0) {
       b.vx -= radial * nx;
@@ -151,12 +194,21 @@ export function stepSwing(t: Terrain, b: Body, anchor: [number, number, number],
       b.vz -= radial * nz;
     }
   }
-  const top = t.support(b.x, b.z, b.y);
-  if (b.y < top) {
-    b.y = top;
-    if (b.vy < 0) b.vy = 0;
-  }
   return L;
+}
+
+/** Move a body's feet to `want` vertically: never below the surface under it, never up into something solid. */
+function verticalMove(t: Terrain, b: Body, want: number, r: number) {
+  const top = t.support(b.x, b.z, b.y, r);
+  if (want <= top) {
+    if (b.vy < 0) b.vy = 0;
+    return top;
+  }
+  if (want > b.y && t.hits(b.x, b.z, want, r, 0)) {
+    if (b.vy > 0) b.vy = 0;
+    return b.y;
+  }
+  return want;
 }
 
 /** Velocity that carries a body from `from` to `to` in `time` seconds under gravity. */
@@ -257,7 +309,7 @@ export function stepKart(t: Terrain, k: Kart, throttle: number, steer: number, d
     const hit = t.slide(k, k.vx * dt, k.vz * dt, KART_RADIUS);
     if (hit.hitX) k.vx *= -0.3;
     if (hit.hitZ) k.vz *= -0.3;
-    const top = t.support(k.x, k.z, k.y);
+    const top = t.support(k.x, k.z, k.y, KART_RADIUS);
     if (top < k.y - STEP_UP) {
       k.grounded = false;
       k.vy = 0;

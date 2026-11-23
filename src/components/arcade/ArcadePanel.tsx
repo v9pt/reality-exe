@@ -98,12 +98,16 @@ function stackSide(s: StackState) {
 export function ArcadePanel() {
   const initial = useGame((s) => s.arcadeGame);
   const [game, setGame] = useState<GameId | null>(initial);
+  const [kartBoard, setKartBoard] = useState(() => useGame.getState().kartBoard);
   // Follow the store when a cabinet, the terminal or the nav picks a game,
   // including when this sheet is reused mid-close.
   useEffect(
     () =>
       useGame.subscribe((st, prev) => {
-        if (st.arcadeGame !== prev.arcadeGame || (st.panel === "arcade" && prev.panel !== "arcade")) setGame(st.arcadeGame);
+        if (st.arcadeGame !== prev.arcadeGame || st.kartBoard !== prev.kartBoard || (st.panel === "arcade" && prev.panel !== "arcade")) {
+          setGame(st.arcadeGame);
+          setKartBoard(st.kartBoard);
+        }
       }),
     [],
   );
@@ -113,7 +117,6 @@ export function ArcadePanel() {
     setTable(loadAll());
     setVersion((v) => v + 1);
   }, []);
-  const [kartBoard, setKartBoard] = useState(false);
   const touch = useTouch();
   const meta = game ? gameById(game) : null;
 
@@ -137,7 +140,17 @@ export function ArcadePanel() {
   const played = table.played.filter((id) => CABINETS.includes(id)).length;
 
   return (
-    <Sheet glyph="遊技場" title={meta ? meta.title : "Arcade"} subtitle={meta ? `${meta.genre}. ${meta.blurb}` : `Five original games and the kart circuit. Every score goes on a global leaderboard under your callsign. Cabinets played: ${played} of ${CABINETS.length}.`} tone="dark" wide>
+    <Sheet
+      glyph="遊技場"
+      title={meta ? meta.title : "Arcade"}
+      subtitle={
+        meta
+          ? `${meta.genre}. ${meta.blurb}`
+          : `Five original games and the kart circuit. Every score goes on a global leaderboard under your callsign. Cabinets played: ${played} of ${CABINETS.length}.`
+      }
+      tone="dark"
+      wide
+    >
       {meta ? (
         <div>
           <button onClick={() => setGame(null)} className="mb-3 text-[13px] text-cyan hover:underline">
@@ -169,7 +182,13 @@ export function ArcadePanel() {
           <button onClick={() => setKartBoard(false)} className="mb-3 text-[13px] text-cyan hover:underline">
             ← All games
           </button>
-          <p className="text-[14px] text-hud-dim">Fastest clean laps of the V9 circuit, south of the plaza. Press K for the kart, 0 to travel there.</p>
+          <p className="text-[14px] text-hud-dim">
+            Fastest clean laps of the V9 circuit, south of the plaza. Press K for the kart, 0 to travel there. Every clean lap is logged under your callsign;
+            your best one goes on the board.
+          </p>
+          <div className="mt-3">
+            <CallsignEditor />
+          </div>
           <div className="mt-3 max-w-md">
             <Leaderboard game="kart" local={kartLocal()} version={version} />
           </div>
@@ -179,45 +198,51 @@ export function ArcadePanel() {
         </div>
       ) : (
         <>
-        <div className="mb-4">
-          <CallsignEditor />
-        </div>
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {GAMES.map((g) => {
-            const best = table.scores[g.id]?.[0]?.score;
-            const c = HUE_HEX[g.hue];
-            return (
-              <li key={g.id}>
-                <button onClick={() => setGame(g.id)} className="group flex w-full items-start gap-4 border border-hud/15 p-4 text-left hover:border-hud/50 focus-visible:border-hud/50">
-                  <span className="kanji grid h-14 w-14 shrink-0 place-items-center border text-[26px]" style={{ color: c, borderColor: `${c}88` }}>
-                    {g.glyph}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="display block text-[1.8rem] leading-none text-hud group-hover:text-white">{g.title}</span>
-                    <span className="mt-1 block text-[12px]" style={{ color: c }}>
-                      {g.genre}
-                      {g.id === "bughunt" ? ", from the back alley" : ""}
+          <div className="mb-4">
+            <CallsignEditor />
+          </div>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {GAMES.map((g) => {
+              const best = table.scores[g.id]?.[0]?.score;
+              const c = HUE_HEX[g.hue];
+              return (
+                <li key={g.id}>
+                  <button
+                    onClick={() => setGame(g.id)}
+                    className="group flex w-full items-start gap-4 border border-hud/15 p-4 text-left hover:border-hud/50 focus-visible:border-hud/50"
+                  >
+                    <span className="kanji grid h-14 w-14 shrink-0 place-items-center border text-[26px]" style={{ color: c, borderColor: `${c}88` }}>
+                      {g.glyph}
                     </span>
-                    <span className="mt-1 block text-[13px] text-hud-dim">{g.blurb}</span>
-                    <span className="mt-2 block text-[12px] text-hud">{best ? `Best ${best}` : "Not played yet"}</span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-          <li>
-            <button onClick={() => setKartBoard(true)} className="group flex w-full items-start gap-4 border border-hud/15 p-4 text-left hover:border-hud/50 focus-visible:border-hud/50">
-              <span className="kanji grid h-14 w-14 shrink-0 place-items-center border text-[22px] text-crimson" style={{ borderColor: "#ff3b4f88" }}>
-                車
-              </span>
-              <span className="min-w-0">
-                <span className="display block text-[1.8rem] leading-none text-hud group-hover:text-white">Kart circuit</span>
-                <span className="mt-1 block text-[12px] text-crimson">Time trial</span>
-                <span className="mt-1 block text-[13px] text-hud-dim">Best laps of the circuit south of the plaza, from everyone who has driven it.</span>
-              </span>
-            </button>
-          </li>
-        </ul>
+                    <span className="min-w-0">
+                      <span className="display block text-[1.8rem] leading-none text-hud group-hover:text-white">{g.title}</span>
+                      <span className="mt-1 block text-[12px]" style={{ color: c }}>
+                        {g.genre}
+                        {g.id === "bughunt" ? ", from the back alley" : ""}
+                      </span>
+                      <span className="mt-1 block text-[13px] text-hud-dim">{g.blurb}</span>
+                      <span className="mt-2 block text-[12px] text-hud">{best ? `Best ${best}` : "Not played yet"}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+            <li>
+              <button
+                onClick={() => setKartBoard(true)}
+                className="group flex w-full items-start gap-4 border border-hud/15 p-4 text-left hover:border-hud/50 focus-visible:border-hud/50"
+              >
+                <span className="kanji grid h-14 w-14 shrink-0 place-items-center border text-[22px] text-crimson" style={{ borderColor: "#ff3b4f88" }}>
+                  車
+                </span>
+                <span className="min-w-0">
+                  <span className="display block text-[1.8rem] leading-none text-hud group-hover:text-white">Kart circuit</span>
+                  <span className="mt-1 block text-[12px] text-crimson">Time trial</span>
+                  <span className="mt-1 block text-[13px] text-hud-dim">Best laps of the circuit south of the plaza, from everyone who has driven it.</span>
+                </span>
+              </button>
+            </li>
+          </ul>
         </>
       )}
     </Sheet>

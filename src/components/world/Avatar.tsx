@@ -5,12 +5,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { CABINETS } from "@/lib/arcade";
 import { LapTimer, formatLap, type LapEvent } from "@/lib/circuit";
-import { postScore } from "@/lib/leaderboard";
-import { AVATAR_RADIUS, KART_RADIUS, blinkTarget, clampToWorld, findAnchor, forwardSpeed, launchVelocity, stepAir, stepGround, stepKart, stepSwing, type Body, type Kart } from "@/lib/motion";
+import { callsign, hasChosenCallsign, postScore, postedMessage } from "@/lib/leaderboard";
+import {
+  AVATAR_RADIUS,
+  KART_RADIUS,
+  blinkTarget,
+  clampToWorld,
+  findAnchor,
+  forwardSpeed,
+  launchVelocity,
+  stepAir,
+  stepGround,
+  stepKart,
+  stepSwing,
+  type Body,
+  type Kart,
+} from "@/lib/motion";
 import { ENERGY_MAX, ENERGY_REGEN, POWERS, powerById, spend, type PowerId } from "@/lib/powers";
 import { SECTIONS } from "@/lib/sections";
 import { CABINET_X, CABINET_Z, JUKEBOX_AT, OVERLOOK_RECT, OVERLOOK_Y, groundHeight, inBackroom } from "@/lib/world-map";
-import { avatar, hero, input, useGame, view, type HeroMode, type NearId } from "@/store/game";
+import { avatar, cafe, hero, input, useGame, view, type HeroMode, type NearId } from "@/store/game";
 import { terrainFor } from "./terrain";
 import { glowTexture } from "./textures";
 
@@ -158,6 +172,7 @@ export function Player() {
   const lap = useMemo(() => new LapTimer(), []);
 
   const B = useRef<Body>({ x: 0, y: 0, z: 3, vx: 0, vy: 0, vz: 0, grounded: true });
+  const lastFree = useRef({ x: 0, y: 0, z: 3 });
   const K = useRef<Kart & { parked: boolean }>({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: true, heading: 0, steer: 0, drifting: false, parked: false });
   const S = useRef<HeroState>({
     mode: "walk",
@@ -533,7 +548,7 @@ export function Player() {
       b.grounded = k.grounded;
       avatar.heading = k.heading;
       s.speed = after;
-      s.wheel += forwardSpeed(k) * dt / 0.26;
+      s.wheel += (forwardSpeed(k) * dt) / 0.26;
       input.jump = false;
     } else if (s.mode === "swing" && s.rope) {
       s.rope.t += dt;
@@ -579,6 +594,37 @@ export function Player() {
       input.jump = false;
     }
     s.squash = Math.max(0, s.squash - dt * 6);
+
+    // Safety net: never end a frame inside a building, landmark or the pond.
+    // The physics already prevents it; this catches anything new (a kart
+    // summoned against a wall, a landing in the pond) by moving to the nearest
+    // free spot, or back to the last free one.
+    {
+      const body = s.mode === "kart" ? k : b;
+      const rad = s.mode === "kart" ? KART_RADIUS : AVATAR_RADIUS;
+      const safe = lastFree.current;
+      if (terrain.blocked(body.x, body.z, body.y, rad)) {
+        const out = terrain.escape(body.x, body.z, body.y, rad);
+        if (out) [body.x, body.z] = out;
+        else if (!terrain.blocked(safe.x, safe.z, safe.y, rad)) {
+          body.x = safe.x;
+          body.y = safe.y;
+          body.z = safe.z;
+        } else {
+          body.y = terrain.support(body.x, body.z, 200, rad);
+        }
+        body.vx = body.vz = 0;
+        if (s.mode === "kart") {
+          b.x = k.x;
+          b.y = k.y;
+          b.z = k.z;
+        }
+      } else {
+        safe.x = body.x;
+        safe.y = body.y;
+        safe.z = body.z;
+      }
+    }
 
     // Facing: where you walk, or where you fly.
     if (s.mode === "walk" && moving) {
@@ -647,7 +693,9 @@ export function Player() {
     const swing = airborne || inKart ? 0 : Math.sin(s.walkPhase) * Math.min(1, sp / 5) * 0.7;
     if (legL.current) legL.current.rotation.x = inKart ? -1.35 : swing - tuck * 0.9;
     if (legR.current) legR.current.rotation.x = inKart ? -1.35 : -swing - tuck * 0.5;
-    if (body.current) body.current.position.y = rm || airborne || inKart ? 0 : Math.abs(Math.cos(s.walkPhase)) * 0.05 * Math.min(1, sp / 5) + Math.sin(s.walkPhase * 0.3) * 0.01;
+    if (body.current)
+      body.current.position.y =
+        rm || airborne || inKart ? 0 : Math.abs(Math.cos(s.walkPhase)) * 0.05 * Math.min(1, sp / 5) + Math.sin(s.walkPhase * 0.3) * 0.01;
     if (head.current) {
       // Eyes follow the camera: the head turns toward where the visitor is looking, within a neck's reach.
       const lookYaw = view.yaw + Math.PI;
@@ -657,7 +705,12 @@ export function Player() {
       head.current.rotation.y += (turn - head.current.rotation.y) * kk;
       head.current.rotation.x += (tilt - head.current.rotation.x) * kk;
     }
-    if (scarf.current) scarf.current.rotation.x = 0.3 + Math.min(1, (inKart ? s.speed / 3 : sp) / 6) * 0.7 + (airborne ? THREE.MathUtils.clamp(-b.vy * 0.08, -0.3, 0.6) : 0) + (rm ? 0 : Math.sin(s.walkPhase * 0.7) * 0.08);
+    if (scarf.current)
+      scarf.current.rotation.x =
+        0.3 +
+        Math.min(1, (inKart ? s.speed / 3 : sp) / 6) * 0.7 +
+        (airborne ? THREE.MathUtils.clamp(-b.vy * 0.08, -0.3, 0.6) : 0) +
+        (rm ? 0 : Math.sin(s.walkPhase * 0.7) * 0.08);
 
     updateFx(fx, s, b, dt, rm);
     updateKart(kartRefs, k, s, inKart);
@@ -686,6 +739,12 @@ export function Player() {
         best = jd;
         near = "jukebox";
       }
+      // Café cats: walk up to one to pet it.
+      const cat = s.mode === "kart" ? -1 : cafe.nearest(b.x, b.z, 1.7);
+      if (cat >= 0) {
+        best = 0;
+        near = `cat:${cat}`;
+      }
       if (inBackroom(b.x, b.z)) {
         near = "backroom";
         if (!g.backroomOpen) g.openBackroom();
@@ -704,7 +763,16 @@ export function Player() {
         <pointLight position={[0.9, 1.8, 1.6]} intensity={2.5} distance={4} color="#ff6a8a" decay={1.5} />
         <Figure legL={legL} legR={legR} body={body} scarf={scarf} shadow={shadow} head={head} />
         <sprite ref={marker} position={[0, 1.2, 0]} visible={false}>
-          <spriteMaterial map={glow} color="#3ee8e0" transparent opacity={0} depthWrite={false} depthTest={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+          <spriteMaterial
+            map={glow}
+            color="#3ee8e0"
+            transparent
+            opacity={0}
+            depthWrite={false}
+            depthTest={false}
+            blending={THREE.AdditiveBlending}
+            toneMapped={false}
+          />
         </sprite>
       </group>
       <HeroFx refs={fx} />
@@ -727,21 +795,31 @@ function onLap(e: LapEvent, lap: LapTimer, g: ReturnType<typeof useGame.getState
       hero.lap.lastEvent = "Lap not counted";
       return;
     }
-    hero.lap.lastMs = e.ms;
-    hero.lap.lastEvent = `Lap ${formatLap(e.ms)}`;
+    // Whole milliseconds everywhere, so the HUD, this device and the board agree.
+    const ms = Math.round(e.ms);
+    hero.lap.lastMs = ms;
+    hero.lap.lastEvent = `Lap ${formatLap(ms)}`;
     const prevBest = hero.lap.bestMs;
-    if (prevBest === null || e.ms < prevBest) {
-      hero.lap.bestMs = e.ms;
+    if (prevBest === null || ms < prevBest) {
+      hero.lap.bestMs = ms;
       try {
-        localStorage.setItem(LAP_KEY, String(Math.round(e.ms)));
+        localStorage.setItem(LAP_KEY, String(ms));
       } catch {
         /* no storage */
       }
     }
     g.unlock("lap");
-    void postScore("kart", Math.round(e.ms)).then((r) => {
-      const body = r.ok ? (r.rank ? `#${r.rank} of everyone who has driven here.` : "Logged on the global board.") : "Saved on this device; the global board is offline.";
-      useGame.getState().toast({ tone: "info", title: `${prevBest === null || e.ms < prevBest ? "New best lap" : "Lap"} ${formatLap(e.ms)}`, body });
+    void postScore("kart", ms).then((r) => {
+      hero.lap.posted = r.ok ? r.you : hero.lap.posted;
+      hero.lap.postedAt = performance.now();
+      const who = hasChosenCallsign() ? `as ${callsign()}` : `as ${callsign()}. Pick your own callsign in the arcade or with \`callsign\` in the terminal`;
+      useGame
+        .getState()
+        .toast({
+          tone: "info",
+          title: `${prevBest === null || ms < prevBest ? "New best lap" : "Lap"} ${formatLap(ms)}`,
+          body: `${postedMessage(r)} Logged ${who}.`,
+        });
     });
     void lap;
   }
@@ -870,7 +948,22 @@ function HeroFx({ refs }: { refs: FxRefs }) {
       (rope.material as THREE.Material).dispose();
     };
   }, [refs, rope]);
-  const ghostMats = useMemo(() => Array.from({ length: GHOSTS }, () => new THREE.MeshBasicMaterial({ color: "#ffb547", transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false })), []);
+  const ghostMats = useMemo(
+    () =>
+      Array.from(
+        { length: GHOSTS },
+        () =>
+          new THREE.MeshBasicMaterial({
+            color: "#ffb547",
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            toneMapped: false,
+          }),
+      ),
+    [],
+  );
   return (
     <>
       <primitive object={rope} />
@@ -956,7 +1049,16 @@ function KartModel({ refs }: { refs: KartRefs }) {
       {/* Underglow */}
       <mesh position={[0, 0.04, 0]} rotation-x={-Math.PI / 2}>
         <planeGeometry args={[1.8, 2.6]} />
-        <meshBasicMaterial ref={(el: THREE.MeshBasicMaterial | null) => void (refs.glow = el)} map={glowTexture()} color="#ff3b4f" transparent opacity={0.4} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+        <meshBasicMaterial
+          ref={(el: THREE.MeshBasicMaterial | null) => void (refs.glow = el)}
+          map={glowTexture()}
+          color="#ff3b4f"
+          transparent
+          opacity={0.4}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+        />
       </mesh>
       {/* Chassis, nose and side pods */}
       <mesh material={m.dark} position={[0, 0.22, 0]}>

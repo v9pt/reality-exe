@@ -7,10 +7,11 @@ import { gameById, type GameId } from "@/lib/arcade";
 import { BACKROOM_AT, DISTRICTS, HUE_HEX, SECTIONS, districtById, sectionById, type DistrictId } from "@/lib/sections";
 import { TRACK } from "@/lib/circuit";
 import { MAP_HALF, fillZones } from "@/lib/world-map";
-import { NAV_KEY, SECRET_LABELS, avatar, input, useGame, view, type CameraMode, type NearId } from "@/store/game";
+import { NAV_KEY, SECRET_LABELS, avatar, cafe, input, useGame, view, type CameraMode, type NearId } from "@/store/game";
 import { orbitBy } from "@/lib/camera";
 import { EnergyLine, KartHud, PowerBar, PowerButtons } from "./HeroHud";
 import { JukeboxButton, useMusic } from "./Jukebox";
+import { WeatherButton } from "./WeatherMenu";
 
 const CAM_LABEL: Record<CameraMode, string> = { follow: "Follow", free: "Free", overview: "Overview" };
 
@@ -198,7 +199,7 @@ function MapNav({ compact, flat }: { compact: boolean; flat: boolean }) {
                   {d.glyph}
                 </span>
                 <span className="display flex-1 text-[1.3rem] leading-none text-hud group-hover:text-white">{d.name}</span>
-                <kbd className="border border-hud/25 px-1.5 text-[11px] text-hud-dim">{d.hotkey}</kbd>
+                {d.hotkey ? <kbd className="border border-hud/25 px-1.5 text-[11px] text-hud-dim">{d.hotkey}</kbd> : null}
               </button>
             </li>
           ))}
@@ -229,6 +230,7 @@ function nearName(near: NearId, playing: boolean) {
   if (near === "jukebox") return playing ? "Next song" : "Play the jukebox";
   if (near === "backroom") return "Open the arcade cabinet";
   if (near.startsWith("cab:")) return `Play ${gameById(near.slice(4) as GameId)?.title}`;
+  if (near.startsWith("cat:")) return `Pet ${cafe.cats[Number(near.slice(4))]?.name ?? "the cat"}`;
   const d = districtById(near);
   if (d) return d.name;
   return `Open ${sectionById(near)?.name}`;
@@ -575,6 +577,7 @@ function Help({ onClose, touch }: { onClose: () => void; touch: boolean }) {
         ["1 to 6", "Open a section"],
         ["7, 8, 9, 0", "Travel to Arcade, Garden, Overlook, Circuit"],
         ["N", "Hide or show the menu"],
+        ["T, Y", "Next weather, next time of day"],
         ["`", "Open the terminal"],
         ["Esc", "Close a sheet"],
       ];
@@ -667,6 +670,11 @@ export function Hud({ compact, touch, flat }: { compact: boolean; touch: boolean
               <button data-tour="camera" onClick={cycle} className="hud-frame px-3 py-1.5 text-[12px] text-hud hover:text-cyan" title="Change camera (C)">
                 <span className="kanji text-cyan">視</span> {CAM_LABEL[camMode]}
               </button>
+            ) : null}
+            {!flat ? (
+              <span data-tour="weather">
+                <WeatherButton />
+              </span>
             ) : null}
             <span data-tour="jukebox">
               <JukeboxButton />

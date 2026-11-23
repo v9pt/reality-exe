@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Saira_Extra_Condensed, Zen_Kaku_Gothic_New } from "next/font/google";
 import { profile } from "@/config/portfolio";
+import { siteUrl } from "@/lib/site";
 import "./globals.css";
 
 const saira = Saira_Extra_Condensed({
@@ -24,10 +25,17 @@ const jet = JetBrains_Mono({
 
 const description = `${profile.name}, ${profile.title}. A portfolio you can walk through: projects, skills, experience, a working terminal, an arcade and a jukebox in a night city.`;
 
+const title = `REALITY.EXE — ${profile.name}`;
+
 export const metadata: Metadata = {
-  title: `REALITY.EXE — ${profile.name}`,
+  metadataBase: siteUrl(),
+  title,
   description,
-  openGraph: { title: `REALITY.EXE — ${profile.name}`, description, type: "website" },
+  applicationName: "REALITY.EXE",
+  authors: [{ name: profile.name, url: profile.contact.github }],
+  alternates: { canonical: "/" },
+  openGraph: { title, description, type: "website", url: "/", siteName: "REALITY.EXE" },
+  twitter: { card: "summary_large_image", title, description },
   icons: { icon: "/icon.svg" },
 };
 

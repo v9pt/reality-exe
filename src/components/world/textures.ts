@@ -18,6 +18,26 @@ function remember(key: string, make: () => THREE.Texture) {
   return t;
 }
 
+/** A small heart for petted cats. */
+export function heartTexture() {
+  return remember("heart", () => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d")!;
+    g.fillStyle = "#ff5a7a";
+    g.beginPath();
+    g.moveTo(32, 54);
+    g.bezierCurveTo(6, 36, 6, 14, 20, 12);
+    g.bezierCurveTo(27, 11, 31, 16, 32, 20);
+    g.bezierCurveTo(33, 16, 37, 11, 44, 12);
+    g.bezierCurveTo(58, 14, 58, 36, 32, 54);
+    g.fill();
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  });
+}
+
 /** Soft radial glow used as a cheap stand-in for bloom. */
 export function glowTexture() {
   return remember("glow", () => {

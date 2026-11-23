@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { BOARD_GAMES, validateEntry, type BoardGame } from "@/lib/leaderboard";
+import { BOARD_GAMES, cleanPlayer, validateEntry, type BoardGame } from "@/lib/leaderboard";
 import { StoreOffline, scoreStore } from "@/lib/server/scoreStore";
 
 export const runtime = "nodejs";
@@ -21,23 +21,26 @@ function limited(ip: string) {
 const offline = (message: string) => NextResponse.json({ ok: false, code: "board_offline", message }, { status: 503 });
 
 export async function GET(req: Request) {
-  const game = new URL(req.url).searchParams.get("game") as BoardGame;
+  const params = new URL(req.url).searchParams;
+  const game = params.get("game") as BoardGame;
   if (!BOARD_GAMES.includes(game)) return NextResponse.json({ ok: false, code: "invalid", message: "Unknown game." }, { status: 400 });
   try {
-    const { board, runs } = await scoreStore().top(game);
-    return NextResponse.json({ ok: true, board, runs }, { headers: { "Cache-Control": "no-store" } });
+    const top = await scoreStore().top(game, cleanPlayer(params.get("player")));
+    return NextResponse.json({ ok: true, ...top }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
-    if (e instanceof StoreOffline) return offline("The leaderboard is offline right now.");
-    throw e;
+    if (!(e instanceof StoreOffline)) console.error("scores GET", e);
+    return offline("The leaderboard is offline right now.");
   }
 }
 
 export async function POST(req: Request) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "local";
   if (limited(ip)) return NextResponse.json({ ok: false, code: "rate_limited", message: "Too many scores at once. Try again in a minute." }, { status: 429 });
+  if (Number(req.headers.get("content-length") ?? 0) > 2048)
+    return NextResponse.json({ ok: false, code: "invalid", message: "Request too large." }, { status: 413 });
   let body: unknown;
   try {
-    body = await req.json();
+    body = JSON.parse((await req.text()).slice(0, 2048));
   } catch {
     return NextResponse.json({ ok: false, code: "invalid", message: "Expected a JSON body." }, { status: 400 });
   }
@@ -45,11 +48,11 @@ export async function POST(req: Request) {
   if (!v.ok) return NextResponse.json({ ok: false, code: "invalid", message: v.message }, { status: 400 });
   try {
     const store = scoreStore();
-    const { rank } = await store.add(v.game, { name: v.name, score: v.score, at: Date.now() });
-    const { board, runs } = await store.top(v.game);
-    return NextResponse.json({ ok: true, rank, board, runs });
+    const { improved } = await store.add(v.game, v.player, { name: v.name, score: v.score, at: Date.now() });
+    const top = await store.top(v.game, v.player);
+    return NextResponse.json({ ok: true, improved, rank: top.you?.rank ?? null, ...top }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
-    if (e instanceof StoreOffline) return offline("The leaderboard is offline right now; your score is saved on this device.");
-    throw e;
+    if (!(e instanceof StoreOffline)) console.error("scores POST", e);
+    return offline("The leaderboard is offline right now; your score is saved on this device.");
   }
 }

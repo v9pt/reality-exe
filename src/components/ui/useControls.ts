@@ -3,7 +3,8 @@
 import { useEffect } from "react";
 import { music } from "@/lib/music/engine";
 import { DISTRICTS, SECTIONS } from "@/lib/sections";
-import { input, useGame } from "@/store/game";
+import { nextPreset } from "@/lib/sky";
+import { env, input, useGame } from "@/store/game";
 
 const KONAMI = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"];
 
@@ -119,6 +120,16 @@ export function useControls(enabled: boolean) {
         if (!e.repeat) input.powerTaps++;
         held.add("f");
         sync();
+        return;
+      }
+      if (k === "t" && !e.repeat) {
+        e.preventDefault();
+        g.cycleWeather();
+        return;
+      }
+      if (k === "y" && !e.repeat) {
+        e.preventDefault();
+        g.jumpTo(nextPreset(env.hours));
         return;
       }
       if (k === "n" && !e.repeat) {

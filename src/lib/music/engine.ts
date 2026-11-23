@@ -99,6 +99,40 @@ class Engine {
     this.listeners.forEach((l) => l());
   }
 
+  /**
+   * A soft purr: low filtered noise with a fast ripple. Plays only if the
+   * visitor has already switched audio on (the jukebox), so nothing autoplays.
+   */
+  purr(seconds = 2.6) {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running" || !this.noise) return;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 160;
+    const ripple = ctx.createGain();
+    ripple.gain.value = 0.5;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 23;
+    const depth = ctx.createGain();
+    depth.gain.value = 0.5;
+    lfo.connect(depth).connect(ripple.gain);
+    const level = ctx.createGain();
+    const peak = 0.5 * this.state.volume;
+    level.gain.setValueAtTime(0, t);
+    level.gain.linearRampToValueAtTime(peak, t + 0.35);
+    level.gain.setValueAtTime(peak, t + Math.max(0.4, seconds - 0.6));
+    level.gain.linearRampToValueAtTime(0, t + seconds);
+    src.connect(lp).connect(ripple).connect(level).connect(ctx.destination);
+    src.start(t);
+    lfo.start(t);
+    src.stop(t + seconds);
+    lfo.stop(t + seconds);
+  }
+
   private setup() {
     if (this.ctx) return this.ctx;
     const ctx = new AudioContext();

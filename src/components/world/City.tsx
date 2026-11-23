@@ -1,10 +1,10 @@
 "use client";
 
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { BACKROOM_AT, DISTRICTS, HUE_HEX, SECTIONS } from "@/lib/sections";
-import { CITY_RANGE, MAP_HALF, generateBuildings, mulberry32, type Building } from "@/lib/world-map";
+import { CAFE_RECT, CAFE_ROOF_Y, CITY_RANGE, MAP_HALF, generateBuildings, mulberry32, type Building } from "@/lib/world-map";
 import { useGame, avatar, view, type Quality } from "@/store/game";
 import {
   FOG_COLOR,
@@ -15,6 +15,8 @@ import {
   groundVertex,
   rainFragment,
   rainVertex,
+  snowFragment,
+  snowVertex,
   skyFragment,
   skyVertex,
 } from "./shaders";
@@ -22,12 +24,52 @@ import { glowTexture, mapTexture, signTexture } from "./textures";
 
 const fogColor = { value: new THREE.Color(FOG_COLOR) };
 
-/** Fog uniforms: colour and density are shared objects, so one update reaches every material. */
+/**
+ * Sky and weather uniforms, shared objects written once a frame by SkyDriver,
+ * so one update reaches every city material.
+ */
+export const envUniforms = {
+  uDay: { value: 0 },
+  uDusk: { value: 0 },
+  uSunDir: { value: new THREE.Vector3(0, -1, 0) },
+  uSunCol: { value: new THREE.Color(1, 0.9, 0.8) },
+  uAmbient: { value: new THREE.Color(0, 0, 0) },
+  uWet: { value: 1 },
+  uSnow: { value: 0 },
+  uFlash: { value: 0 },
+};
+
+/** The sky dome's own uniforms (also written by SkyDriver). */
+export const skyUniforms = {
+  uTime: { value: 0 },
+  uTop: { value: new THREE.Color(0.016, 0.02, 0.052) },
+  uHorizon: { value: new THREE.Color(0.15, 0.06, 0.21) },
+  uSunDir: envUniforms.uSunDir,
+  uSunCol: envUniforms.uSunCol,
+  uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+  uPhase: { value: 0.5 },
+  uDay: envUniforms.uDay,
+  uDusk: envUniforms.uDusk,
+  uCloud: { value: 0.65 },
+  uFlash: envUniforms.uFlash,
+};
+
+/** Precipitation: how much falls, how fast, and whether it is snow. */
+export const precipUniforms = {
+  uAmount: { value: 0.75 },
+  uSpeed: { value: 24 },
+  uSnowMode: { value: 0 },
+};
+
+/** Fog and sky uniforms: shared objects, so one update reaches every material. */
 export const fogUniforms = () => ({
   uFogColor: fogColor,
   uFogDensity: fogDensity,
   uTime: { value: 0 },
+  ...envUniforms,
 });
+
+export { fogColor };
 
 /* ─────────────────────────── Sky ─────────────────────────── */
 
@@ -37,7 +79,7 @@ export function Sky() {
       new THREE.ShaderMaterial({
         vertexShader: skyVertex,
         fragmentShader: skyFragment,
-        uniforms: { uTime: { value: 0 } },
+        uniforms: skyUniforms,
         side: THREE.BackSide,
         depthWrite: false,
       }),
@@ -263,6 +305,8 @@ export function Rain() {
   const reducedMotion = useGame((s) => s.reducedMotion);
   const count = RAIN[quality];
   const lines = useRef<THREE.LineSegments>(null);
+  const flakes = useRef<THREE.Points>(null);
+  const size = useThree((s) => s.size.height);
   const geometry = useMemo(() => {
     const rand = mulberry32(7);
     const seed = new Float32Array(count * 2 * 3);
@@ -281,25 +325,71 @@ export function Rain() {
     g.setAttribute("aEnd", new THREE.BufferAttribute(end, 1));
     return g;
   }, [count]);
+  // Snow uses one point per drop, from the same seeds.
+  const snowGeometry = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const src = geometry.getAttribute("aSeed") as THREE.BufferAttribute;
+    const seed = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) seed.set([src.getX(i * 2), src.getY(i * 2), src.getZ(i * 2)], i * 3);
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 3));
+    return g;
+  }, [geometry, count]);
+  const shared = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uCenter: { value: new THREE.Vector3() },
+      uRoof: { value: new THREE.Vector4(CAFE_RECT.x0 - 0.3, CAFE_RECT.z0 - 0.3, CAFE_RECT.x1 + 0.3, CAFE_RECT.z1 + 0.3) },
+      uRoofY: { value: CAFE_ROOF_Y },
+      uFlash: envUniforms.uFlash,
+      uDay: envUniforms.uDay,
+    }),
+    [],
+  );
   const mat = useMemo(
     () =>
       new THREE.ShaderMaterial({
         vertexShader: rainVertex,
         fragmentShader: rainFragment,
-        uniforms: { uTime: { value: 0 }, uCenter: { value: new THREE.Vector3() }, uSize: { value: 44 } },
+        uniforms: { ...shared, uSize: { value: 44 }, uAmount: { value: 0 }, uSpeed: precipUniforms.uSpeed },
         transparent: true,
         depthWrite: false,
       }),
-    [],
+    [shared],
+  );
+  const snowMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: snowVertex,
+        fragmentShader: snowFragment,
+        uniforms: { ...shared, uSize: { value: 40 }, uAmount: { value: 0 }, uSpeed: precipUniforms.uSpeed, uPx: { value: 600 } },
+        transparent: true,
+        depthWrite: false,
+      }),
+    [shared],
   );
   useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => () => snowGeometry.dispose(), [snowGeometry]);
   useEffect(() => () => mat.dispose(), [mat]);
+  useEffect(() => () => snowMat.dispose(), [snowMat]);
   useFrame((_, dt) => {
-    // Reduced motion: rain hangs still rather than disappearing.
-    if (!reducedMotion) mat.uniforms.uTime.value += dt;
-    mat.uniforms.uCenter.value.set(avatar.x, avatar.ground, avatar.z);
+    // Reduced motion: rain and snow hang still rather than disappearing.
+    if (!reducedMotion) shared.uTime.value += dt;
+    shared.uCenter.value.set(avatar.x, avatar.ground, avatar.z);
+    const amount = precipUniforms.uAmount.value;
+    const snow = precipUniforms.uSnowMode.value;
+    mat.uniforms.uAmount.value = amount * (1 - snow);
+    snowMat.uniforms.uAmount.value = amount * snow;
+    snowMat.uniforms.uPx.value = size;
     // Rain only falls round the avatar; from far away it would read as a column.
-    if (lines.current) lines.current.visible = view.mode === "follow" || view.dist[view.mode] < 28;
+    const close = view.mode === "follow" || view.dist[view.mode] < 28;
+    if (lines.current) lines.current.visible = close && amount * (1 - snow) > 0.01;
+    if (flakes.current) flakes.current.visible = close && amount * snow > 0.01;
   });
-  return <lineSegments ref={lines} geometry={geometry} material={mat} frustumCulled={false} />;
+  return (
+    <>
+      <lineSegments ref={lines} geometry={geometry} material={mat} frustumCulled={false} />
+      <points ref={flakes} geometry={snowGeometry} material={snowMat} frustumCulled={false} />
+    </>
+  );
 }

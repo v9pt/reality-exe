@@ -51,6 +51,44 @@ export const CIRCUIT_SOLIDS = [
   { x: 20, z: 64 + 5.2, w: 0.35, d: 0.35, h: 6.4 },
 ];
 
+/**
+ * The cat café, north-east of the plaza beyond the ring road: a pavilion open
+ * along its south side, reached by a short path from the ring.
+ */
+export const CAFE_RECT = { x0: 41, x1: 59, z0: -57, z1: -43 };
+export const CAFE_PATH: { a: Vec2; b: Vec2; half: number } = { a: [30.6, -31.4], b: [47, -44], half: 2.6 };
+export const CAFE_ROOF_Y = 4.1;
+/** The café's doorway along its south wall (x range). */
+export const CAFE_DOOR = { x0: 44, x1: 52 };
+export type SolidBox = { x: number; z: number; w: number; d: number; h: number; y0?: number };
+/** Walls, roof and furniture: solid to the avatar, the kart and the cats. */
+export const CAFE_SOLIDS: SolidBox[] = (() => {
+  const r = CAFE_RECT;
+  const t = 0.4;
+  const H = CAFE_ROOF_Y;
+  const cx = (r.x0 + r.x1) / 2;
+  const cz = (r.z0 + r.z1) / 2;
+  return [
+    // Back, side and front walls (the front leaves the doorway open).
+    { x: cx, z: r.z0 + t / 2, w: r.x1 - r.x0, d: t, h: H },
+    { x: r.x0 + t / 2, z: cz, w: t, d: r.z1 - r.z0, h: H },
+    { x: r.x1 - t / 2, z: cz, w: t, d: r.z1 - r.z0, h: H },
+    { x: (r.x0 + CAFE_DOOR.x0) / 2, z: r.z1 - t / 2, w: CAFE_DOOR.x0 - r.x0, d: t, h: H },
+    { x: (CAFE_DOOR.x1 + r.x1) / 2, z: r.z1 - t / 2, w: r.x1 - CAFE_DOOR.x1, d: t, h: H },
+    // Roof slab: you can stand on it, and it stops jumps from inside.
+    { x: cx, z: cz, w: r.x1 - r.x0 + 0.6, d: r.z1 - r.z0 + 0.6, h: H + 0.3, y0: H },
+    // Counter along the back, low tables, and a tall cat tree.
+    { x: 54.5, z: -55.2, w: 6.5, d: 1.2, h: 1.1 },
+    { x: 45, z: -48, w: 1.3, d: 1.3, h: 0.75 },
+    { x: 50, z: -51, w: 1.3, d: 1.3, h: 0.75 },
+    { x: 45, z: -53.5, w: 1.3, d: 1.3, h: 0.75 },
+    { x: 54, z: -48.5, w: 1.3, d: 1.3, h: 0.75 },
+    { x: 57.4, z: -45, w: 1.4, d: 1.4, h: 2.6 },
+  ];
+})();
+/** Where the café's six cats wander: inside the walls, as the cats see it. */
+export const CAFE_FLOOR = { x0: CAFE_RECT.x0 + 0.8, x1: CAFE_RECT.x1 - 0.8, z0: CAFE_RECT.z0 + 0.8, z1: CAFE_RECT.z1 - 0.8 };
+
 export const ZONES: Zone[] = [
   { id: "plaza", shape: { kind: "circle", x: 0, z: 0, r: PLAZA_R } },
   { id: "ring", shape: { kind: "ring", r0: RING_R0, r1: RING_R1 } },
@@ -67,6 +105,8 @@ export const ZONES: Zone[] = [
   { id: "arcade", shape: { kind: "rect", ...ARCADE_RECT } },
   { id: "garden", shape: { kind: "circle", ...GARDEN } },
   { id: "circuit", shape: { kind: "rect", ...CIRCUIT_RECT } },
+  { id: "cafe-path", shape: { kind: "segment", a: CAFE_PATH.a, b: CAFE_PATH.b, half: CAFE_PATH.half } },
+  { id: "cafe", shape: { kind: "rect", ...CAFE_RECT } },
   { id: "alley", shape: { kind: "segment", a: ALLEY_FROM, b: ALLEY_TO, half: ALLEY_HALF_WIDTH } },
   { id: "backroom", shape: { kind: "circle", x: BACKROOM_AT[0], z: BACKROOM_AT[1], r: BACKROOM_R } },
 ];
@@ -169,28 +209,47 @@ export const GATE_POSTS: Vec2[] = [
   [GARDEN.x + GARDEN.r - 1.5, 2.6],
 ];
 
-/** Highway support pillars: every 10°, leaving the four avenues clear. */
+/** Distance from a point to a segment. */
+export function segmentDistance(x: number, z: number, a: Vec2, b: Vec2) {
+  const dx = b[0] - a[0];
+  const dz = b[1] - a[1];
+  const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(x - (a[0] + dx * t), z - (a[1] + dz * t));
+}
+
+/** Highway support pillars: every 10°, leaving the four avenues and the café path clear. */
 export const HIGHWAY_PILLARS: Vec2[] = (() => {
   const out: Vec2[] = [];
   for (let i = 0; i < 36; i++) {
     const a = (i / 36) * Math.PI * 2;
     const toAxis = Math.min(...[0, Math.PI / 2, Math.PI, -Math.PI / 2, -Math.PI].map((ax) => Math.abs(Math.atan2(Math.sin(a - ax), Math.cos(a - ax)))));
     if (toAxis < 0.2) continue;
-    out.push([Math.cos(a) * HIGHWAY_R, Math.sin(a) * HIGHWAY_R]);
+    const p: Vec2 = [Math.cos(a) * HIGHWAY_R, Math.sin(a) * HIGHWAY_R];
+    if (segmentDistance(p[0], p[1], CAFE_PATH.a, CAFE_PATH.b) < CAFE_PATH.half + 2) continue;
+    out.push(p);
   }
   return out;
 })();
 
-/** Round obstacles the avatar is pushed out of. */
-export const SOLIDS: { x: number; z: number; r: number }[] = [
-  ...SECTIONS.map((s) => ({ x: s.at[0], z: s.at[1], r: 1.5 })),
-  ...CABINET_Z.map((z) => ({ x: CABINET_X, z, r: 1.0 })),
-  { x: POND.x, z: POND.z, r: POND.r },
-  ...TREES.map(([x, z]) => ({ x, z, r: 0.45 })),
-  ...GATE_POSTS.map(([x, z]) => ({ x, z, r: 0.35 })),
-  { x: JUKEBOX_AT[0], z: JUKEBOX_AT[1], r: 0.8 },
-  // Telescope on the overlook.
-  { x: 0, z: OVERLOOK_RECT.z0 + 3, r: 0.7 },
+/**
+ * Round obstacles: landmarks, cabinets, trees and the like. Each is a column
+ * from `y0` to `y0 + h`. You can land on top of the ones marked `stand`; the
+ * pond is water, so it only ever blocks.
+ */
+export type Solid = { x: number; z: number; r: number; y0: number; h: number; stand: boolean };
+
+/** Rough heights of the six landmarks' structures, so you can land on top of them. */
+const LANDMARK_H: Record<string, number> = { profile: 3.1, quests: 3.4, skills: 4.2, log: 6, terminal: 2.2, contact: 7.2 };
+
+export const SOLIDS: Solid[] = [
+  ...SECTIONS.map((s) => ({ x: s.at[0], z: s.at[1], r: 1.5, y0: 0, h: LANDMARK_H[s.id] ?? 3, stand: true })),
+  ...CABINET_Z.map((z) => ({ x: CABINET_X, z, r: 1.0, y0: 0, h: 2.4, stand: true })),
+  { x: POND.x, z: POND.z, r: POND.r, y0: 0, h: 0.5, stand: false },
+  ...TREES.map(([x, z]) => ({ x, z, r: 0.45, y0: 0, h: 3.2, stand: true })),
+  ...GATE_POSTS.map(([x, z]) => ({ x, z, r: 0.35, y0: 0, h: 3.4, stand: true })),
+  { x: JUKEBOX_AT[0], z: JUKEBOX_AT[1], r: 0.8, y0: 0, h: 2.2, stand: true },
+  // Telescope on the overlook deck.
+  { x: 0, z: OVERLOOK_RECT.z0 + 3, r: 0.7, y0: OVERLOOK_Y, h: 1.6, stand: true },
 ];
 
 function inWall(x: number, z: number) {
@@ -407,6 +466,7 @@ export function obstacleGrid(buildings: Building[]) {
   g.add((o.x0 + o.x1) / 2, (o.z0 + o.z1) / 2, o.x1 - o.x0, o.z1 - o.z0, OVERLOOK_Y - 0.6);
   for (const [x, z] of HIGHWAY_PILLARS) g.add(x, z, 1.1, 1.1, HIGHWAY_Y - 0.3);
   for (const c of CIRCUIT_SOLIDS) g.add(c.x, c.z, c.w, c.d, c.h);
+  for (const c of CAFE_SOLIDS) g.add(c.x, c.z, c.w, c.d, c.h, 0, c.y0 ?? 0);
   // Low walls along the circuit: karts bounce off them, on foot you can jump them.
   for (const w of BARRIERS) g.add(w.x, w.z, w.len, BARRIER_THICK, BARRIER_HEIGHT, w.rot);
   return g;
