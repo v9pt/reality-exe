@@ -450,9 +450,10 @@ function Tour({ flat, touch }: { flat: boolean; touch: boolean }) {
             <button autoFocus onClick={() => go(1)} className="bg-cyan px-4 py-1.5 text-[13px] font-bold text-night hover:bg-hud">
               {i === steps.length - 1 ? "Explore" : "Next"}
             </button>
-            <span className="ml-auto hidden gap-1 sm:flex" aria-hidden>
+            {/* Step markers share the space left beside the buttons and shrink to fit inside the card. */}
+            <span className="ml-2 hidden min-w-0 flex-1 justify-end gap-[3px] sm:flex" aria-hidden>
               {steps.map((s, k) => (
-                <i key={s.id} className={`block h-1 w-2.5 ${k === i ? "bg-cyan" : k < i ? "bg-hud/50" : "bg-hud/15"}`} />
+                <i key={s.id} className={`block h-1 max-w-2.5 min-w-0 flex-1 ${k === i ? "bg-cyan" : k < i ? "bg-hud/50" : "bg-hud/15"}`} />
               ))}
             </span>
           </div>
