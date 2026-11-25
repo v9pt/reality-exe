@@ -1,10 +1,10 @@
 import type { MetadataRoute } from "next";
-import { siteUrl } from "@/lib/site";
+import { absolute } from "@/lib/seo";
 
+/** Every crawler may read everything; the sitemap lists the public pages. */
 export default function robots(): MetadataRoute.Robots {
-  const base = siteUrl();
   return {
-    rules: { userAgent: "*", allow: "/", disallow: "/api/" },
-    sitemap: new URL("/sitemap.xml", base).toString(),
+    rules: { userAgent: "*", allow: "/" },
+    sitemap: absolute("/sitemap.xml"),
   };
 }

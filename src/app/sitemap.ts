@@ -1,6 +1,19 @@
 import type { MetadataRoute } from "next";
-import { siteUrl } from "@/lib/site";
+import { absolute } from "@/lib/seo";
+
+/**
+ * Generated at build time from this list. Add an entry here when a new public
+ * page is added; `npm run indexnow` reads this sitemap to know what to submit.
+ * `lastModified` is the build time, i.e. the last deploy.
+ */
+const PUBLIC_PATHS = ["/"] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [{ url: siteUrl().toString(), changeFrequency: "monthly", priority: 1 }];
+  const lastModified = new Date();
+  return PUBLIC_PATHS.map((path) => ({
+    url: absolute(path),
+    lastModified,
+    changeFrequency: "monthly",
+    priority: path === "/" ? 1 : 0.7,
+  }));
 }

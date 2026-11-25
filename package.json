@@ -14,7 +14,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build"
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "indexnow": "node scripts/indexnow.mjs",
+    "icons": "node scripts/generate-icons.mjs"
   },
   "engines": {
     "node": ">=20"

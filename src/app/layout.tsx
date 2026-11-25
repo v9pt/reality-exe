@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Saira_Extra_Condensed, Zen_Kaku_Gothic_New } from "next/font/google";
 import { profile } from "@/config/portfolio";
+import { SITE_NAME, homeDescription, homeTitle } from "@/lib/seo";
 import { siteUrl } from "@/lib/site";
 import "./globals.css";
 
@@ -23,20 +24,21 @@ const jet = JetBrains_Mono({
   display: "swap",
 });
 
-const description = `${profile.name}, ${profile.title}. A portfolio you can walk through: projects, skills, experience, a working terminal, an arcade and a jukebox in a night city.`;
+const title = homeTitle;
+const description = homeDescription;
 
-const title = `REALITY.EXE — ${profile.name}`;
-
+// Icons come from the file conventions in this folder (icon.svg,
+// icon1-3.png, apple-icon.png, favicon.ico), so none are listed here. The
+// canonical is set by each page, so the 404 page doesn't point at the home page.
 export const metadata: Metadata = {
   metadataBase: siteUrl(),
   title,
   description,
-  applicationName: "REALITY.EXE",
+  applicationName: SITE_NAME,
   authors: [{ name: profile.name, url: profile.contact.github }],
-  alternates: { canonical: "/" },
-  openGraph: { title, description, type: "website", url: "/", siteName: "REALITY.EXE" },
+  creator: profile.name,
+  openGraph: { title, description, type: "profile", url: "/", siteName: SITE_NAME, locale: "en_US" },
   twitter: { card: "summary_large_image", title, description },
-  icons: { icon: "/icon.svg" },
 };
 
 export const viewport: Viewport = {

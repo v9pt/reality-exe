@@ -1,4 +1,8 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+// Next.js marks this page noindex on its own; that is right for a 404.
+export const metadata: Metadata = { title: "Page not found | REALITY.EXE" };
 
 export default function NotFound() {
   return (
