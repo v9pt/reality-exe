@@ -1,6 +1,7 @@
 // Tells IndexNow search engines (Bing, Yandex, Seznam, Naver and others; not
 // Google) that the site's pages changed. Reads the URLs from the live sitemap,
-// so run it after a production deploy:
+// so run it after a production deploy (the IndexNow workflow does this on
+// every push to master):
 //   SITE_URL=https://huzaifa.codes node scripts/indexnow.mjs
 // The key is public by design: search engines check it by fetching
 // <site>/<key>.txt, which lives in /public.
